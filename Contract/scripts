@@ -1,0 +1,89 @@
+const hre = require("hardhat");
+require('dotenv').config();
+
+async function main() {
+  const [deployer] = await hre.ethers.getSigners();
+  console.log("Deploying contracts with account:", deployer.address);
+  
+  const balance = await hre.ethers.provider.getBalance(deployer.address);
+  console.log("Account balance:", hre.ethers.formatEther(balance), "ETH");
+
+  // Get configuration from .env
+  const tokenAddress = process.env.TOKEN_ADDRESS;
+  const companyWallet = process.env.COMPANY_WALLET;
+  
+  if (!tokenAddress || !companyWallet) {
+    throw new Error("Please set TOKEN_ADDRESS and COMPANY_WALLET in .env file");
+  }
+
+  console.log("\nConfiguration:");
+  console.log("Token Address:", tokenAddress);
+  console.log("Company Wallet:", companyWallet);
+
+  const packageAmount = hre.ethers.parseUnits("20", 18); // 20 tokens with 18 decimals
+  const reTopupAmount = hre.ethers.parseUnits("40", 18); // 40 tokens with 18 decimals
+
+  console.log("\nPackage Amount:", hre.ethers.formatUnits(packageAmount, 18), "tokens");
+  console.log("Re-Topup Amount:", hre.ethers.formatUnits(reTopupAmount, 18), "tokens");
+
+  console.log("\nDeploying DecentReferral contract...");
+  
+  const DecentReferral = await hre.ethers.getContractFactory("DecentReferral");
+  const decentReferral = await DecentReferral.deploy(
+    tokenAddress,
+    companyWallet,
+    packageAmount,
+    reTopupAmount
+  );
+
+  await decentReferral.waitForDeployment();
+  
+  const contractAddress = await decentReferral.getAddress();
+  console.log("\n✅ DecentReferral deployed successfully!");
+  console.log("Contract Address:", contractAddress);
+
+  console.log("\n📋 Next Steps:");
+  console.log("1. Verify the contract on BSCScan (if on testnet/mainnet)");
+  console.log("2. Transfer ownership to a multisig wallet (recommended for production)");
+  console.log("3. Users must approve the token before calling register() or reTopup()");
+  console.log("4. Update your frontend/backend with the new contract address");
+  
+  console.log("\n⚠️  Security Reminders:");
+  console.log("- Get a professional audit before mainnet deployment");
+  console.log("- Use a multisig wallet (Gnosis Safe) as owner");
+  console.log("- Test thoroughly on testnet first");
+  console.log("- Monitor events for off-chain reconciliation");
+
+  // Save deployment info
+  const fs = require('fs');
+  const deploymentInfo = {
+    network: hre.network.name,
+    contractAddress: contractAddress,
+    deployer: deployer.address,
+    tokenAddress: tokenAddress,
+    companyWallet: companyWallet,
+    packageAmount: packageAmount.toString(),
+    reTopupAmount: reTopupAmount.toString(),
+    timestamp: new Date().toISOString()
+  };
+  
+  const deploymentsDir = './deployments';
+  if (!fs.existsSync(deploymentsDir)) {
+    fs.mkdirSync(deploymentsDir);
+  }
+  
+  fs.writeFileSync(
+    `${deploymentsDir}/${hre.network.name}-latest.json`,
+    JSON.stringify(deploymentInfo, null, 2)
+  );
+  
+  console.log(`\n💾 Deployment info saved to ${deploymentsDir}/${hre.network.name}-latest.json`);
+}
+
+main()
+  .then(() => process.exit(0))
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+

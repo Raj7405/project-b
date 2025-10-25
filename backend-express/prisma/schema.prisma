@@ -1,0 +1,68 @@
+// Prisma Schema for Crypto MLM Platform
+// Database: PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                BigInt        @id
+  walletAddress     String        @unique @map("wallet_address")
+  parentId          BigInt?       @map("parent_id")
+  sponsorCount      Int           @default(0) @map("sponsor_count")
+  hasReTopup        Boolean       @default(false) @map("has_retopup")
+  hasAutoPoolEntry  Boolean       @default(false) @map("has_auto_pool_entry")
+  totalDirectIncome Decimal       @default(0) @map("total_direct_income") @db.Decimal(20, 18)
+  totalLevelIncome  Decimal       @default(0) @map("total_level_income") @db.Decimal(20, 18)
+  totalAutoPoolIncome Decimal     @default(0) @map("total_auto_pool_income") @db.Decimal(20, 18)
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  
+  transactions      Transaction[]
+  parent            User?         @relation("UserHierarchy", fields: [parentId], references: [id])
+  children          User[]        @relation("UserHierarchy")
+  
+  @@map("users")
+}
+
+model Transaction {
+  id              String          @id @default(uuid())
+  txHash          String          @unique @map("tx_hash")
+  userId          BigInt          @map("user_id")
+  walletAddress   String          @map("wallet_address")
+  type            TransactionType
+  amount          Decimal         @db.Decimal(20, 18)
+  blockNumber     BigInt          @map("block_number")
+  description     String?
+  createdAt       DateTime        @default(now()) @map("created_at")
+  
+  user            User            @relation(fields: [userId], references: [id])
+  
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("transactions")
+}
+
+enum TransactionType {
+  REGISTRATION
+  DIRECT_INCOME
+  LEVEL_INCOME
+  AUTO_POOL_INCOME
+  RETOPUP
+  RETOPUP_SKIPPED
+}
+
+model BlockchainSync {
+  id              Int      @id @default(autoincrement())
+  lastBlock       BigInt   @map("last_block")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  
+  @@map("blockchain_sync")
+}
+
