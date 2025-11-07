@@ -1,344 +1,495 @@
+// Explains the license identifier required by the Solidity compiler to display usage rights for the source code
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+// Specifies the version of the Solidity compiler this contract requires (0.8.0 or higher but less than 0.9.0)
+pragma solidity ^0.8.0;
 
-/*
-  DecentReferral.sol - Crypto MLM Platform on BSC (BNB Smart Chain)
-  
-  ⚠️  DESIGNED FOR BEP-20 TOKENS ON BINANCE SMART CHAIN (BSC)
-  
-  Features:
-  - BEP-20 token standard (BUSD, USDT, or any 18-decimal BEP-20 token)
-  - Optimized for BSC gas efficiency and network characteristics
-  - $20 package registration (in BEP-20 tokens)
-  - Direct income: $18 to parent, $2 to company (except the 2nd sponsor case)
-  - 2nd sponsor -> entry to Auto Pool (full $20 held in contract as pool funds)
-  - Auto Pool: binary placement using BFS-style parent pointer
-  - Re-Topup: $40 tokens must be transferred; $36 distributed up 10 levels; $4 company fee
-  - **IMPORTANT**: Only users who have themselves done re-topup can receive re-topup income
-  - Security: SafeERC20, ReentrancyGuard, Ownable, Pausable
-  
-  Supported Networks:
-  - BSC Mainnet (Chain ID: 56)
-  - BSC Testnet (Chain ID: 97)
-  - Local Hardhat (Chain ID: 31337) - for testing
-*/
-
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
-
-contract DecentReferral is Ownable, ReentrancyGuard, Pausable {
-    using SafeERC20 for IERC20;
-
-    IERC20 public immutable token;          // BEP-20 token used for payments
-    address public companyWallet;
-    uint256 public immutable packageAmount; // e.g., 20 * 1e18
-    uint256 public immutable reTopupAmount; // e.g., 40 * 1e18
-
-    uint256 public nextId = 1;
-
-    struct User {
-        address wallet;
-        uint256 id;
-        uint256 parentId;      // 0 for company/root
-        uint16 sponsorCount;   // how many direct sponsors this user has
-        bool exists;
-    }
-
-    // user id => User
-    mapping(uint256 => User) public users;
-    // wallet => id
-    mapping(address => uint256) public walletToId;
-    
-    // Track which users have done re-topup (eligibility for receiving re-topup income)
-    mapping(uint256 => bool) public hasReTopup;
-
-    // AutoPool binary tree nodes stored by id (IDs are user IDs)
-    // We maintain BFS insertion using poolParentPtr indicating which node should receive next child
-    uint256[] public poolNodes; // array of user ids in pool (1-based user ids)
-    uint256 public poolParentPtr = 0; // index into poolNodes for parent selection
-    // queue for pool entries (efficient pop with head index)
-    uint256[] private poolQueue;
-    uint256 private poolQueueHead = 0;
-
-    // reTopup distribution percentages (percentages sum to 100)
-    uint8[10] public reTopupPerc = [30,15,10,5,5,5,5,5,10,10]; // sum 100
-
-    event UserRegistered(uint256 indexed id, address indexed wallet, uint256 indexed parentId, bool wentToAutoPool);
-    event DirectIncomePaid(uint256 indexed toId, address indexed to, uint256 amount);
-    event CompanyFeePaid(address indexed to, uint256 amount);
-    event AutoPoolEnqueued(uint256 indexed id, address indexed wallet);
-    event AutoPoolPlaced(uint256 indexed nodeId, uint256 indexed parentId, uint256 position); // position: 0=left,1=right
-    event ReTopupProcessed(uint256 indexed id, address indexed wallet, uint256 amount);
-    event ReTopupSkippedToCompany(uint256 indexed skippedId, address indexed skippedWallet, uint256 amount, uint8 level);
-    event EmergencyWithdraw(address indexed to, uint256 amount);
-
-    constructor(
-        address _token,
-        address _companyWallet,
-        uint256 _packageAmount,
-        uint256 _reTopupAmount
-    ) {
-        require(_token != address(0), "token 0");
-        require(_companyWallet != address(0), "company 0");
-        token = IERC20(_token);
-        companyWallet = _companyWallet;
-        packageAmount = _packageAmount;
-        reTopupAmount = _reTopupAmount;
-
-        // register company as root user id = 1
-        users[nextId] = User({wallet: _companyWallet, id: nextId, parentId: 0, sponsorCount: 0, exists: true});
-        walletToId[_companyWallet] = nextId;
-        nextId++;
-        // also seed poolNodes with company id as root pool node (optional)
-        poolNodes.push(1); // company node as default root in pool
-    }
-
-    modifier onlyRegistered(uint256 id) {
-        require(users[id].exists, "user not registered");
-        _;
-    }
-
-    modifier onlyWalletRegistered() {
-        require(walletToId[msg.sender] != 0, "wallet not registered");
-        _;
-    }
-
-    // Register: user must have approved packageAmount to this contract beforehand
-    // `referrerId` must exist
-    function register(uint256 referrerId) external nonReentrant whenNotPaused {
-        require(walletToId[msg.sender] == 0, "already registered");
-        require(users[referrerId].exists, "referrer not found");
-
-        // transfer packageAmount from user into contract
-        token.safeTransferFrom(msg.sender, address(this), packageAmount);
-
-        // create user
-        uint256 myId = nextId++;
-        users[myId] = User({wallet: msg.sender, id: myId, parentId: referrerId, sponsorCount: 0, exists: true});
-        walletToId[msg.sender] = myId;
-
-        // increment sponsorCount for referrer
-        users[referrerId].sponsorCount += 1;
-
-        bool parentWentToPool = false;
-
-        // Process payment for the new registration
-        // Normal sponsor payment: parent receives $18 (90%), company receives $2 (10%)
-        uint256 companyFee = (packageAmount * 10) / 100; // 10%
-        uint256 parentShare = packageAmount - companyFee; // 90%
-        address parentWallet = users[referrerId].wallet;
-        token.safeTransfer(parentWallet, parentShare);
-        token.safeTransfer(companyWallet, companyFee);
-
-        emit DirectIncomePaid(referrerId, parentWallet, parentShare);
-        emit CompanyFeePaid(companyWallet, companyFee);
-
-        // if this is the 2nd sponsor for referrer -> referrer (parent) goes to Auto Pool
-        if (users[referrerId].sponsorCount == 2) {
-            // The referrer (parent) now qualifies for Auto Pool entry
-            // Enqueue the REFERRER into poolQueue for later distribution/placement
-            poolQueue.push(referrerId);
-            emit AutoPoolEnqueued(referrerId, parentWallet);
-            parentWentToPool = true;
-        }
-
-        // attempt to process pool queue immediately (owner may call distribute separately too)
-        _tryProcessPool(); // non-blocking in that it will process as many entries as possible
-
-        emit UserRegistered(myId, msg.sender, referrerId, parentWentToPool);
-    }
-
-    // internal: process pool queue and place nodes into binary poolNodes tree
-    // placement rule: take the front of poolQueue and place it as left/right child of poolNodes[poolParentPtr]
-    function _tryProcessPool() internal {
-        // continue while there are queued entries and there is a parent available
-        while (poolQueueHead < poolQueue.length) {
-            uint256 newUserId = poolQueue[poolQueueHead];
-            // find a parent in poolNodes to attach to. Ensure poolParentPtr is valid
-            if (poolParentPtr >= poolNodes.length) {
-                // no parent available (shouldn't happen because we always push new nodes)
-                break;
-            }
-            uint256 parentId = poolNodes[poolParentPtr];
-
-            // Count children of parent in poolNodes by checking next indices:
-            // We are storing nodes in BFS order; when we add a new node, we append it to poolNodes.
-            // We decide left/right based on whether parent already has two children in BFS sequence.
-            // Compute parent's index in poolNodes array
-            // NOTE: since poolNodes is user ids list in BFS order, parentIndex = poolParentPtr
-            // The children would be at indices: 2*parentIndex+1 and +2 (0-based)
-            uint256 parentIndex = poolParentPtr;
-            uint256 leftIndex = parentIndex * 2 + 1;
-            uint256 rightIndex = parentIndex * 2 + 2;
-            bool placed = false;
-            uint256 position = 0; // 0=left,1=right
-
-            // If leftIndex out of bounds -> we'll append new node (becomes left)
-            if (leftIndex >= poolNodes.length) {
-                poolNodes.push(newUserId);
-                placed = true;
-                position = 0;
-            } else if (rightIndex >= poolNodes.length) {
-                // There is left child but no right child -> append new node as right
-                poolNodes.push(newUserId);
-                placed = true;
-                position = 1;
-            } else {
-                // parent already has two children -> advance parent pointer
-                poolParentPtr += 1;
-                continue; // try again with next parent
-            }
-
-            if (placed) {
-                emit AutoPoolPlaced(newUserId, parentId, position);
-                // advance queue head
-                poolQueueHead += 1;
-
-                // Note: funds for pool members are already in contract (we kept their packageAmount)
-                // Actual payouts from pool should be administered with a separate owner/admin function
-                // or an automated on-chain rule; keeping it simple: funds remain until distributed by owner
-            }
-        }
-
-        // Trim memory if head has advanced a lot
-        if (poolQueueHead > 128 && poolQueueHead * 2 > poolQueue.length) {
-            // shift remaining entries to new array to free memory
-            uint256 remaining = poolQueue.length - poolQueueHead;
-            uint256[] memory newQ = new uint256[](remaining);
-            for (uint i = 0; i < remaining; i++) {
-                newQ[i] = poolQueue[poolQueueHead + i];
-            }
-            // replace storage array
-            delete poolQueue;
-            for (uint i = 0; i < remaining; i++) poolQueue.push(newQ[i]);
-            poolQueueHead = 0;
-        }
-    }
-
-    // Owner callable: distribute pool payouts based on your business rule
-    // This is an admin function because pool payout rules can be complex (binary distribution layers, staged payouts)
-    // Example usage: owner calls distributePoolPayouts with an array of recipient userIds and amounts
-    function distributePoolPayouts(uint256[] calldata recipientIds, uint256[] calldata amounts) external onlyOwner nonReentrant {
-        require(recipientIds.length == amounts.length, "len mismatch");
-        for (uint i = 0; i < recipientIds.length; i++) {
-            uint256 id = recipientIds[i];
-            require(users[id].exists, "recipient not registered");
-            address to = users[id].wallet;
-            token.safeTransfer(to, amounts[i]);
-            // emit a Transfer event style log
-            emit DirectIncomePaid(id, to, amounts[i]);
-        }
-    }
-
-    // User-triggered ReTopup (must approve reTopupAmount before calling)
-    // Distribution: 10 levels with percentages defined in reTopupPerc array (sum = 100)
-    // IMPORTANT: Only ancestors who have themselves done re-topup receive income
-    // If an ancestor has NOT done re-topup, their share goes to company wallet
-    function reTopup() external nonReentrant whenNotPaused onlyWalletRegistered {
-        uint256 senderId = walletToId[msg.sender];
-        require(senderId != 0, "no id");
-        
-        // transfer tokens from user into contract
-        token.safeTransferFrom(msg.sender, address(this), reTopupAmount);
-
-        // mark that sender has reTopup (so they become eligible for future distributions)
-        if (!hasReTopup[senderId]) {
-            hasReTopup[senderId] = true;
-        }
-
-        uint256 companyFee = (reTopupAmount * 10) / 100; // $4 (10%)
-        uint256 distributable = reTopupAmount - companyFee; // $36 (90%)
-
-        // walk up parents and distribute
-        uint256 currentId = users[senderId].parentId;
-        for (uint8 i = 0; i < 10; i++) {
-            uint256 perc = reTopupPerc[i];
-            uint256 share = (distributable * perc) / 100;
-
-            if (currentId == 0) {
-                // reached root/company — send remaining shares to company
-                if (share > 0) {
-                    token.safeTransfer(companyWallet, share);
-                    emit CompanyFeePaid(companyWallet, share);
-                }
-            } else {
-                if (hasReTopup[currentId]) {
-                    // ancestor is eligible — pay them
-                    address to = users[currentId].wallet;
-                    token.safeTransfer(to, share);
-                    emit DirectIncomePaid(currentId, to, share);
-                } else {
-                    // ancestor NOT eligible (hasn't done re-topup) — send this share to company
-                    if (share > 0) {
-                        token.safeTransfer(companyWallet, share);
-                        emit ReTopupSkippedToCompany(currentId, users[currentId].wallet, share, i + 1);
-                    }
-                }
-                // continue walking up the chain
-                currentId = users[currentId].parentId;
-            }
-        }
-
-        // company fee for the reTopup (the dedicated 10%)
-        token.safeTransfer(companyWallet, companyFee);
-        emit CompanyFeePaid(companyWallet, companyFee);
-        emit ReTopupProcessed(senderId, msg.sender, reTopupAmount);
-    }
-
-    // -------------------
-    // Admin / Owner utilities
-    // -------------------
-    function setCompanyWallet(address _company) external onlyOwner {
-        require(_company != address(0), "zero");
-        companyWallet = _company;
-    }
-
-    function pause() external onlyOwner {
-        _pause();
-    }
-    function unpause() external onlyOwner {
-        _unpause();
-    }
-
-    // Emergency withdraw by owner to send tokens out of contract (should be multisig in production)
-    function emergencyWithdraw(address to, uint256 amount) external onlyOwner nonReentrant {
-        require(to != address(0), "zero");
-        token.safeTransfer(to, amount);
-        emit EmergencyWithdraw(to, amount);
-    }
-
-    // -------------------
-    // View helpers
-    // -------------------
-    function getPoolQueueLength() external view returns (uint256) {
-        if (poolQueue.length < poolQueueHead) return 0;
-        return poolQueue.length - poolQueueHead;
-    }
-
-    function getPoolNodesCount() external view returns (uint256) {
-        return poolNodes.length;
-    }
-
-    function getUserId(address wallet) external view returns (uint256) {
-        return walletToId[wallet];
-    }
-
-    function userInfo(uint256 id) external view returns (address wallet, uint256 parentId, uint16 sponsorCnt, bool exists_, bool hasReTopup_) {
-        User memory u = users[id];
-        return (u.wallet, u.parentId, u.sponsorCount, u.exists, hasReTopup[id]);
-    }
-    
-    function isEligibleForReTopupIncome(uint256 id) external view returns (bool) {
-        return hasReTopup[id];
-    }
-    
-    function isEligibleForReTopupIncomeByWallet(address wallet) external view returns (bool) {
-        uint256 id = walletToId[wallet];
-        if (id == 0) return false;
-        return hasReTopup[id];
-    }
+// Declares an interface for interacting with an ERC20-compliant token (in this case USDT)
+interface IERC20 {
+    // Defines the function signature for transferring tokens from one address to another with prior allowance
+    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
+    // Defines the function signature for transferring tokens directly from the caller to a recipient
+    function transfer(address recipient, uint256 amount) external returns (bool);
 }
 
+// Declares the main contract that implements the MLM system logic
+contract MLMSystem {
+    
+    // ============ STATE VARIABLES ============
+    
+    // Holds a reference to the USDT token contract so we can invoke ERC20 functions
+    IERC20 public usdtToken;
+    // Stores the wallet address owned by the company to receive fees
+    address public companyWallet;
+    // Tracks the next user id to assign, starting at 1 (company is the first user)
+    uint256 public lastUserId = 1;
+    
+    // Constants
+    // Sets the buy-in price for new users to join the system (20 USDT with 18 decimals)
+    uint256 public constant ENTRY_PRICE = 20 * 10**18; // $20 in USDT (18 decimals)
+    // Sets the required amount for a user to perform a retopup (40 USDT)
+    uint256 public constant RETOPUP_PRICE = 40 * 10**18; // $40 in USDT
+    // Defines the payout amount sent to referrers for most direct referrals (18 USDT)
+    uint256 public constant DIRECT_INCOME = 18 * 10**18; // $18
+    // Defines the fee retained by the company on each qualifying direct referral (2 USDT)
+    uint256 public constant COMPANY_FEE = 2 * 10**18; // $2
+    
+    // ============ DATA STRUCTURES ============
+    
+    // Represents all on-chain information associated with a user
+    struct User {
+        // Unique numeric identifier assigned sequentially to each registered user
+        uint256 id;
+        // Address of the immediate sponsor who referred this user
+        address referrer;
+        // Counts how many direct referrals this user has accumulated
+        uint256 referralCount; // Total direct referrals
+        // Tracks total direct referral earnings this user has received
+        uint256 directIncome;
+        // Tracks cumulative earnings from the auto pool placements
+        uint256 poolIncome;
+        // Tracks total income earned from the multi-level retopup distribution
+        uint256 levelIncome;
+        // Flag indicating whether the user has registered and is active
+        bool isActive;
+        // Counts how many times the user has performed retopups
+        uint256 retopupCount;
+        // Stores each direct referral address by index (1-based) for retrieval
+        mapping(uint256 => address) referrals; // referralIndex => referral address
+    }
+    
+    // Represents a node in the auto pool binary tree for a given level
+    struct PoolNode {
+        // The address of the user occupying this node
+        address user;
+        // Address of the left child in the binary tree (if any)
+        address left;
+        // Address of the right child in the binary tree (if any)
+        address right;
+        // The level within the auto pool hierarchy this node belongs to
+        uint256 poolLevel; // 1, 2, 3...
+        // Indicates whether the left child slot has been filled
+        bool leftFilled;
+        // Indicates whether the right child slot has been filled
+        bool rightFilled;
+        // Marks whether both child positions are filled and rewards have been processed
+        bool isComplete;
+    }
+    
+    // ============ MAPPINGS ============
+    
+    // Maps each user address to its associated User struct containing MLM data
+    mapping(address => User) public users;
+    // Maps numeric user IDs back to their associated addresses for lookup
+    mapping(uint256 => address) public idToAddress;
+    // For each user and pool level, stores the PoolNode representing their position in that level
+    mapping(address => mapping(uint256 => PoolNode)) public userPools; // user => poolLevel => PoolNode
+    // For each pool level, maintains a queue of addresses waiting for child placements
+    mapping(uint256 => address[]) public poolQueue; // poolLevel => array of addresses waiting for children
+    // For each pool level, tracks the current index in the queue used to find available parents
+    mapping(uint256 => uint256) public poolQueueIndex; // poolLevel => current index in queue
+    
+    // Level income percentages (in basis points, 10000 = 100%)
+    // Defines the percentage share (basis points) allocated to each of the 10 upline levels during retopup distribution
+    uint256[10] public levelPercentages = [3000, 1500, 1000, 500, 500, 500, 500, 500, 1000, 1000];
+    
+    // ============ EVENTS ============
+    
+    // Emitted whenever a new user registers, recording the user, referrer, and assigned ID
+    event UserRegistered(address indexed user, address indexed referrer, uint256 userId);
+    // Emitted when a referrer receives direct income, showing the paying downline and amount
+    event DirectIncomeEarned(address indexed user, address indexed from, uint256 amount);
+    // Emitted when a user earns income from the auto pool at a specific level
+    event PoolIncomeEarned(address indexed user, uint256 poolLevel, uint256 amount);
+    // Emitted when an upline receives level income from a downline's retopup
+    event LevelIncomeEarned(address indexed user, address indexed from, uint256 level, uint256 amount);
+    // Emitted whenever a user is placed into the auto pool under a parent at a given level
+    event PoolPlacement(address indexed user, uint256 poolLevel, address indexed parent);
+    // Emitted when a pool node for a user is completed (both child slots filled)
+    event PoolCompleted(address indexed user, uint256 poolLevel);
+    // Emitted when a user successfully performs a retopup transaction
+    event RetopupCompleted(address indexed user, uint256 amount);
+    
+    // ============ CONSTRUCTOR ============
+    
+    // Executes once during deployment to set up the token reference and seed the system
+    constructor(address _usdtToken, address _companyWallet) {
+        // Stores the ERC20 token instance to interact with the USDT contract at runtime
+        usdtToken = IERC20(_usdtToken);
+        // Saves the company wallet address used for collecting fees and initialization
+        companyWallet = _companyWallet;
+        
+        // Register company as first user (ID 1)
+        // Assigns the initial user ID of 1 to the company wallet
+        users[companyWallet].id = 1;
+        // Marks the company wallet as an active user in the system
+        users[companyWallet].isActive = true;
+        // Links the numeric ID 1 back to the company wallet address
+        idToAddress[1] = companyWallet;
+        // Increments the lastUserId counter so the next real user receives ID 2
+        lastUserId++;
+    }
+    
+    // ============ MAIN FUNCTIONS ============
+    
+    /**
+     * @dev Register a new user with a referrer
+     * @param _referrer Address of the referrer (sponsor)
+     */
+    // Allows an external caller to join the MLM system with a specified referrer
+    function register(address _referrer) external {
+        // Ensures the caller has not registered previously
+        require(!users[msg.sender].isActive, "User already registered");
+         // Prevents a user from referring themselves to gain benefits
+        require(msg.sender != _referrer, "Cannot refer yourself");
+        // Ensures the provided referrer is an active participant
+        require(users[_referrer].isActive, "Referrer not active");
+        
+        // Transfer USDT from user to contract
+        // Requests the USDT token contract to move the entry fee from the user into this contract
+        require(
+            usdtToken.transferFrom(msg.sender, address(this), ENTRY_PRICE),
+            "USDT transfer failed"
+        );
+        
+        // Create new user
+        // Assigns a new sequential ID to the registering user
+        users[msg.sender].id = lastUserId;
+        // Records the referrer's address for this user
+        users[msg.sender].referrer = _referrer;
+        // Marks the new user as active to enable participation in the plan
+        users[msg.sender].isActive = true;
+        // Stores a reverse lookup from ID to the new user's address
+        idToAddress[lastUserId] = msg.sender;
+        // Increments the global user counter for the next registration
+        lastUserId++;
+        
+        // Update referrer's referral count
+        // Increments the referrer's total direct referral count to reflect this signup
+        users[_referrer].referralCount++;
+        // Caches the updated referral count for reuse below
+        uint256 refCount = users[_referrer].referralCount;
+        // Saves the new referral address at the position equal to the referral count
+        users[_referrer].referrals[refCount] = msg.sender;
+        
+        // Emits an event so off-chain systems can track the new registration
+        emit UserRegistered(msg.sender, _referrer, users[msg.sender].id);
+        
+        // Process income distribution
+        // Delegates logic for distributing the entry fee based on referral count
+        _processDirectIncome(_referrer, refCount);
+    }
+    
+    /**
+     * @dev Process direct referral income
+     * @param _referrer The referrer address
+     * @param _refCount Current referral count for this referrer
+     */
+    // Handles how the entry payment is allocated depending on referral number
+    function _processDirectIncome(address _referrer, uint256 _refCount) private {
+        // Checks whether this is the second referral which triggers automatic pool placement
+        if (_refCount == 2) {
+            // 2nd referral: All $20 goes to Auto Pool
+            // Places the new referral into the auto pool at level 1 instead of paying direct income
+            _placeInAutoPool(msg.sender, 1);
+            
+        } else {
+            // 1st, 3rd, 4th... referrals: $18 to referrer, $2 to company
+            // Sends the direct income portion to the referrer using the token transfer function
+            require(
+                usdtToken.transfer(_referrer, DIRECT_INCOME),
+                "Direct income transfer failed"
+            );
+            // Updates the referrer's stored direct income total after successful transfer
+            users[_referrer].directIncome += DIRECT_INCOME;
+            // Emits an event to record this direct income payout
+            emit DirectIncomeEarned(_referrer, msg.sender, DIRECT_INCOME);
+            
+            // Transfers the remaining company fee portion to the company wallet
+            require(
+                usdtToken.transfer(companyWallet, COMPANY_FEE),
+                "Company fee transfer failed"
+            );
+        }
+    }
+    
+    /**
+     * @dev Place user in auto pool (binary tree structure)
+     * @param _user User to place
+     * @param _poolLevel Pool level (1, 2, 3...)
+     */
+    // Manages placement of users within the auto pool binary tree and distributes rewards
+    function _placeInAutoPool(address _user, uint256 _poolLevel) private {
+        // Calculates the monetary value required for this pool level based on entry price doubling
+        uint256 poolValue = ENTRY_PRICE * (2 ** (_poolLevel - 1));
+        // Determines the portion of the pool value that will be paid out to the parent user
+        uint256 distribution = poolValue * 90 / 100; // 90% distributed
+        // Determines the portion retained by the company as fees at this level
+        uint256 fee = poolValue * 10 / 100; // 10% company fee
+        
+        // If this is first placement in this pool level, user becomes root
+        // Checks whether this level has any users yet and if not sets the first user as root
+        if (poolQueue[_poolLevel].length == 0) {
+            // Records the user occupying this node in the pool
+            userPools[_user][_poolLevel].user = _user;
+            // Stores the level within the user's pool node for reference
+            userPools[_user][_poolLevel].poolLevel = _poolLevel;
+            // Adds the user to the queue for potential child assignments
+            poolQueue[_poolLevel].push(_user);
+            // Emits an event noting placement without a parent since this is the root
+            emit PoolPlacement(_user, _poolLevel, address(0));
+            // Ends execution because no further placement actions are needed for the root
+            return;
+        }
+        
+        // Find parent who needs children
+        // Retrieves the next parent in the queue who still has an open child slot
+        address parent = _findAvailableParent(_poolLevel);
+        
+        // Place user under parent
+        // Checks and assigns the left child slot if it is not yet occupied
+        if (!userPools[parent][_poolLevel].leftFilled) {
+            // Stores the new user as the left child of the parent at this level
+            userPools[parent][_poolLevel].left = _user;
+            // Marks that the left slot is now filled to avoid double assignment
+            userPools[parent][_poolLevel].leftFilled = true;
+        } else if (!userPools[parent][_poolLevel].rightFilled) {
+            // Otherwise assigns the user to the right child slot if available
+            userPools[parent][_poolLevel].right = _user;
+            // Marks that the right slot is now filled
+            userPools[parent][_poolLevel].rightFilled = true;
+        }
+        
+        // Initialize child's pool node
+        // Sets the child's own pool node with its address
+        userPools[_user][_poolLevel].user = _user;
+        // Records the level for the child's node
+        userPools[_user][_poolLevel].poolLevel = _poolLevel;
+        // Adds the child to the placement queue for future descendants
+        poolQueue[_poolLevel].push(_user);
+        
+        // Emits a placement event indicating which parent the user was attached to
+        emit PoolPlacement(_user, _poolLevel, parent);
+        
+        // Check if parent's binary is complete
+        // Determines if both child slots have been filled for the parent node
+        if (userPools[parent][_poolLevel].leftFilled && 
+            userPools[parent][_poolLevel].rightFilled) {
+            
+            // Marks the parent node as complete to signal no more children are needed
+            userPools[parent][_poolLevel].isComplete = true;
+            // Emits an event indicating the parent node has been completed
+            emit PoolCompleted(parent, _poolLevel);
+            
+            // Distribute pool income to parent
+            // Transfers the calculated distribution amount to the parent user
+            require(
+                usdtToken.transfer(parent, distribution),
+                "Pool income transfer failed"
+            );
+            // Updates the parent's cumulative pool income with the amount just transferred
+            users[parent].poolIncome += distribution;
+            // Emits an event to log the pool income payment
+            emit PoolIncomeEarned(parent, _poolLevel, distribution);
+            
+            // Company fee
+            // Transfers the company fee portion of the pool payout
+            require(
+                usdtToken.transfer(companyWallet, fee),
+                "Company fee transfer failed"
+            );
+            
+            // Auto-upgrade to next pool
+            // Recursively places the parent into the next pool level for automatic upgrading
+            _placeInAutoPool(parent, _poolLevel + 1);
+        }
+    }
+    
+    /**
+     * @dev Find next available parent in pool queue
+     * @param _poolLevel Pool level to search
+     */
+    // Identifies the next user in the queue with an open child spot for placement
+    function _findAvailableParent(uint256 _poolLevel) private returns (address) {
+        // Retrieves the current index pointer for this level's queue
+        uint256 currentIndex = poolQueueIndex[_poolLevel];
+        
+        // Iterates over queued addresses until a parent with open slots is located
+        while (currentIndex < poolQueue[_poolLevel].length) {
+            // Fetches the candidate parent at the current queue index
+            address candidate = poolQueue[_poolLevel][currentIndex];
+            
+            // Returns the candidate if either left or right slot remains unfilled
+            if (!userPools[candidate][_poolLevel].leftFilled || 
+                !userPools[candidate][_poolLevel].rightFilled) {
+                return candidate;
+            }
+            
+            // Advances the index to examine the next candidate in the queue
+            currentIndex++;
+        }
+        
+        // Updates the stored index after iterating through the queue
+        poolQueueIndex[_poolLevel] = currentIndex;
+        // Returns the candidate at the current index (assumes a valid entry exists)
+        return poolQueue[_poolLevel][currentIndex];
+    }
+    
+    /**
+     * @dev User performs re-topup to activate level income
+     */
+    // Allows an active user to pay for reactivation and trigger level income distribution
+    function retopup() external {
+        // Ensures only registered users can perform a retopup
+        require(users[msg.sender].isActive, "User not registered");
+        
+        // Transfer $40 USDT from user
+        // Collects the retopup fee from the user via the USDT token contract
+        require(
+            usdtToken.transferFrom(msg.sender, address(this), RETOPUP_PRICE),
+            "USDT transfer failed"
+        );
+        
+        // Increments the user's retopup counter to track activity
+        users[msg.sender].retopupCount++;
+        // Emits an event indicating the retopup has been processed successfully
+        emit RetopupCompleted(msg.sender, RETOPUP_PRICE);
+        
+        // Distribute to 10 levels
+        // Triggers the distribution of retopup income up the sponsorship tree
+        _distributeLevelIncome(msg.sender);
+    }
+    
+    /**
+     * @dev Distribute level income to 10 uplines
+     * @param _user User who performed retopup
+     */
+    // Sends the retopup payment through up to ten levels of sponsors based on configured percentages
+    function _distributeLevelIncome(address _user) private {
+        // Starts with the direct referrer of the user performing the retopup
+        address currentUpline = users[_user].referrer;
+        // Tracks the total amount distributed to ensure any remainder goes to the company
+        uint256 totalDistributed = 0;
+        
+        // Iterates up to ten levels of upline sponsors
+        for (uint256 i = 0; i < 10; i++) {
+            // Stops distribution if the chain reaches the root or the company wallet
+            if (currentUpline == address(0) || currentUpline == companyWallet) {
+                break;
+            }
+            
+            // Calculate income for this level
+            // Computes the payout amount for the current level using basis point percentages
+            uint256 levelIncome = (RETOPUP_PRICE * levelPercentages[i]) / 10000;
+            
+            // Executes the transfer of level income to the current upline
+            require(
+                usdtToken.transfer(currentUpline, levelIncome),
+                "Level income transfer failed"
+            );
+            
+            // Updates the cumulative level income earned by this upline
+            users[currentUpline].levelIncome += levelIncome;
+            // Adds the payout to the running total distributed amount
+            totalDistributed += levelIncome;
+            
+            // Emits an event recording the level income transfer details
+            emit LevelIncomeEarned(currentUpline, _user, i + 1, levelIncome);
+            
+            // Move to next upline
+            // Advances the traversal to the next referrer up the chain
+            currentUpline = users[currentUpline].referrer;
+        }
+        
+        // Send company fee (10% of $40 = $4)
+        // Calculates the remaining balance after level distributions to send to the company
+        uint256 companyFee = RETOPUP_PRICE - totalDistributed;
+        // Transfers the remaining amount to the company wallet as the fee portion
+        require(
+            usdtToken.transfer(companyWallet, companyFee),
+            "Company fee transfer failed"
+        );
+    }
+    
+    // ============ VIEW FUNCTIONS ============
+    
+    /**
+     * @dev Get user details
+     */
+    // Allows external callers to fetch key information about a specified user
+    function getUserInfo(address _user) external view returns (
+        uint256 id,
+        address referrer,
+        uint256 referralCount,
+        uint256 directIncome,
+        uint256 poolIncome,
+        uint256 levelIncome,
+        bool isActive,
+        uint256 retopupCount
+    ) {
+        // Loads the user's storage struct into a local reference for return values
+        User storage user = users[_user];
+        // Returns a tuple containing the requested user metrics
+        return (
+            user.id,
+            user.referrer,
+            user.referralCount,
+            user.directIncome,
+            user.poolIncome,
+            user.levelIncome,
+            user.isActive,
+            user.retopupCount
+        );
+    }
+    
+    /**
+     * @dev Get user's referrals
+     */
+    // Returns a list of direct referral addresses for a user up to a specified count
+    function getUserReferrals(address _user, uint256 _count) external view returns (address[] memory) {
+        // Allocates a dynamic array in memory to hold the referral addresses to return
+        address[] memory referrals = new address[](_count);
+        // Iterates from 1 to the requested count to copy stored referral addresses
+        for (uint256 i = 1; i <= _count; i++) {
+            // Copies each referral from the user mapping into the memory array (1-based to 0-based index shift)
+            referrals[i - 1] = users[_user].referrals[i];
+        }
+        // Returns the populated array of referral addresses to the caller
+        return referrals;
+    }
+    
+    /**
+     * @dev Get pool node information
+     */
+    // Provides detailed information about a user's position within a specific pool level
+    function getPoolNode(address _user, uint256 _poolLevel) external view returns (
+        address user,
+        address left,
+        address right,
+        uint256 poolLevel,
+        bool leftFilled,
+        bool rightFilled,
+        bool isComplete
+    ) {
+        // Fetches the stored pool node data for the user and requested level
+        PoolNode storage node = userPools[_user][_poolLevel];
+        // Returns all node attributes for external inspection or visualization
+        return (
+            node.user,
+            node.left,
+            node.right,
+            node.poolLevel,
+            node.leftFilled,
+            node.rightFilled,
+            node.isComplete
+        );
+    }
+    
+    /**
+     * @dev Get total earnings for a user
+     */
+    // Calculates and returns the sum of all income streams for a specific user
+    function getTotalEarnings(address _user) external view returns (uint256) {
+        // Adds together direct, pool, and level income totals for the given user address
+        return users[_user].directIncome + users[_user].poolIncome + users[_user].levelIncome;
+    }
+}
