@@ -20,11 +20,11 @@ export default function Navbar() {
   }
 
   return (
-    <nav className="bg-white shadow-lg">
-      <div className="container mx-auto px-4">
+    <nav className="glass-effect sticky top-0 z-50 shadow-lg">
+      <div className="container mx-auto px-4 py-7">
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center">
-            <h1 className="text-2xl font-bold text-primary">Crypto MLM</h1>
+            <h1 className="text-2xl font-bold text-white">Crypto MLM</h1>
           </div>
 
           <div className="flex items-center space-x-4">
@@ -37,7 +37,7 @@ export default function Navbar() {
             {!account ? (
               <button
                 onClick={connectWallet}
-                className="flex items-center space-x-2 bg-primary hover:bg-primary/90 text-white px-6 py-2 rounded-lg transition-all"
+                className="flex items-center space-x-2 bg-blue-gradient-primary hover:bg-white text-white px-6 py-5 rounded-lg transition-all"
               >
                 <FaWallet />
                 <span>Connect Wallet</span>

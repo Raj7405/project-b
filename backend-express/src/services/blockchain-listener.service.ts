@@ -1,4 +1,4 @@
-import { ethers } from 'ethers';
+import { ethers, EventLog } from 'ethers';
 import prisma from '../config/database';
 import { getProvider, getContract, CONTRACT_ABI } from '../config/blockchain';
 import { TransactionType } from '@prisma/client';
@@ -90,6 +90,7 @@ const processUserRegisteredEvents = async (
 
   for (const event of events) {
     try {
+      if (!(event instanceof EventLog)) continue;
       const [id, wallet, parentId, wentToAutoPool] = event.args as any;
       const userId = BigInt(id.toString());
       const parentIdBigInt = BigInt(parentId.toString());
@@ -153,6 +154,7 @@ const processDirectIncomeEvents = async (
 
   for (const event of events) {
     try {
+      if (!(event instanceof EventLog)) continue;
       const [toId, to, amount] = event.args as any;
       const userId = BigInt(toId.toString());
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
@@ -197,6 +199,7 @@ const processLevelIncomeEvents = async (
 
   for (const event of events) {
     try {
+      if (!(event instanceof EventLog)) continue;
       const [toId, to, amount, level] = event.args as any;
       const userId = BigInt(toId.toString());
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
@@ -241,6 +244,7 @@ const processAutoPoolIncomeEvents = async (
 
   for (const event of events) {
     try {
+      if (!(event instanceof EventLog)) continue;
       const [toId, to, amount] = event.args as any;
       const userId = BigInt(toId.toString());
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
@@ -285,6 +289,7 @@ const processReTopupEvents = async (
 
   for (const event of events) {
     try {
+      if (!(event instanceof EventLog)) continue;
       const [id, wallet, amount] = event.args as any;
       const userId = BigInt(id.toString());
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
@@ -327,6 +332,7 @@ const processAutoPoolEnqueuedEvents = async (
 
   for (const event of events) {
     try {
+      if (!(event instanceof EventLog)) continue;
       const [id, wallet] = event.args as any;
       const userId = BigInt(id.toString());
 
@@ -355,6 +361,7 @@ const processSkippedIncomeEvents = async (
 
   for (const event of events) {
     try {
+      if (!(event instanceof EventLog)) continue;
       const [skippedId, skippedWallet, amount, level] = event.args as any;
       const userId = BigInt(skippedId.toString());
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));

@@ -13,89 +13,97 @@ export default function Home() {
   const { account, isOwner } = useWeb3()
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+    <div className="min-h-screen">
       <Navbar />
       
-      <div className="container mx-auto px-4 py-8">
-        {!account ? (
-          <div className="text-center py-20">
-            <h1 className="text-4xl font-bold text-gray-800 mb-4">
-              Welcome to Crypto MLM Platform
-            </h1>
-            <p className="text-xl text-gray-600 mb-8">
-              Connect your wallet to get started
-            </p>
-            <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-              <div className="bg-white p-6 rounded-lg shadow-lg">
-                <h3 className="text-xl font-semibold mb-2">📊 Direct Income</h3>
-                <p className="text-gray-600">Earn $18 from each direct referral</p>
-              </div>
-              <div className="bg-white p-6 rounded-lg shadow-lg">
-                <h3 className="text-xl font-semibold mb-2">🎯 Auto Pool</h3>
-                <p className="text-gray-600">Enter auto pool after 2 sponsors</p>
-              </div>
-              <div className="bg-white p-6 rounded-lg shadow-lg">
-                <h3 className="text-xl font-semibold mb-2">💰 Level Income</h3>
-                <p className="text-gray-600">Earn from 10 levels with re-topup</p>
+      <section className="hero-mask-image w-full h-screen">
+        <div className="container mx-auto px-4 py-8">
+          {!account ? (
+            <div className="text-center py-20 ">
+              <h1 className="text-7xl gradient-color-1 font-bold text-white mb-4">
+                Welcome to Crypto MLM Platform
+              </h1>
+              <p className="text-6xl text-white mb-8">
+                Connect your wallet to get started
+              </p>
+              <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+                <div className="gradient-card hover:scale-105 transition-transform duration-300">
+                  <div className="gradient-card-inner">
+                    <h3 className="text-xl font-semibold mb-2 text-white">📊 Direct Income</h3>
+                    <p className="text-gray-300">Earn $18 from each direct referral</p>
+                  </div>
+                </div>
+                <div className="gradient-card hover:scale-105 transition-transform duration-300">
+                  <div className="gradient-card-inner">
+                    <h3 className="text-xl font-semibold mb-2 text-white">🎯 Auto Pool</h3>
+                    <p className="text-gray-300">Enter auto pool after 2 sponsors</p>
+                  </div>
+                </div>
+                <div className="gradient-card hover:scale-105 transition-transform duration-300">
+                  <div className="gradient-card-inner">
+                    <h3 className="text-xl font-semibold mb-2 text-white">💰 Level Income</h3>
+                    <p className="text-gray-300">Earn from 10 levels with re-topup</p>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        ) : (
-          <>
-            {/* Tabs */}
-            <div className="flex space-x-4 mb-8 border-b">
-              <button
-                onClick={() => setActiveTab('dashboard')}
-                className={`px-4 py-2 font-medium ${
-                  activeTab === 'dashboard'
-                    ? 'text-primary border-b-2 border-primary'
-                    : 'text-gray-600 hover:text-gray-800'
-                }`}
-              >
-                Dashboard
-              </button>
-              <button
-                onClick={() => setActiveTab('register')}
-                className={`px-4 py-2 font-medium ${
-                  activeTab === 'register'
-                    ? 'text-primary border-b-2 border-primary'
-                    : 'text-gray-600 hover:text-gray-800'
-                }`}
-              >
-                Register
-              </button>
-              <button
-                onClick={() => setActiveTab('retopup')}
-                className={`px-4 py-2 font-medium ${
-                  activeTab === 'retopup'
-                    ? 'text-primary border-b-2 border-primary'
-                    : 'text-gray-600 hover:text-gray-800'
-                }`}
-              >
-                Re-Topup
-              </button>
-              {isOwner && (
+          ) : (
+            <>
+              {/* Tabs */}
+              <div className="flex space-x-4 mb-8 border-b">
                 <button
-                  onClick={() => setActiveTab('admin')}
+                  onClick={() => setActiveTab('dashboard')}
                   className={`px-4 py-2 font-medium ${
-                    activeTab === 'admin'
+                    activeTab === 'dashboard'
                       ? 'text-primary border-b-2 border-primary'
                       : 'text-gray-600 hover:text-gray-800'
                   }`}
                 >
-                  Admin
+                  Dashboard
                 </button>
-              )}
-            </div>
+                <button
+                  onClick={() => setActiveTab('register')}
+                  className={`px-4 py-2 font-medium ${
+                    activeTab === 'register'
+                      ? 'text-primary border-b-2 border-primary'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  Register
+                </button>
+                <button
+                  onClick={() => setActiveTab('retopup')}
+                  className={`px-4 py-2 font-medium ${
+                    activeTab === 'retopup'
+                      ? 'text-primary border-b-2 border-primary'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  Re-Topup
+                </button>
+                {isOwner && (
+                  <button
+                    onClick={() => setActiveTab('admin')}
+                    className={`px-4 py-2 font-medium ${
+                      activeTab === 'admin'
+                        ? 'text-primary border-b-2 border-primary'
+                        : 'text-gray-600 hover:text-gray-800'
+                    }`}
+                  >
+                    Admin
+                  </button>
+                )}
+              </div>
 
-            {/* Content */}
-            {activeTab === 'dashboard' && <Dashboard />}
-            {activeTab === 'register' && <Register />}
-            {activeTab === 'retopup' && <ReTopup />}
-            {activeTab === 'admin' && isOwner && <AdminPanel />}
-          </>
-        )}
-      </div>
+              {/* Content */}
+              {activeTab === 'dashboard' && <Dashboard />}
+              {activeTab === 'register' && <Register />}
+              {activeTab === 'retopup' && <ReTopup />}
+              {activeTab === 'admin' && isOwner && <AdminPanel />}
+            </>
+          )}
+        </div>
+      </section>
     </div>
   )
 }
