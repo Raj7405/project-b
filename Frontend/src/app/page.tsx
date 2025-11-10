@@ -16,8 +16,8 @@ export default function Home() {
     <div className="min-h-screen">
       <Navbar />
       
-      <section className="hero-mask-image w-full h-screen">
-        <div className="container mx-auto px-4 py-8">
+      <section className="hero-mask-image w-full h-auto">
+        <div className="container mx-auto px-4 py-18">
           {!account ? (
             <div className="text-center py-20 ">
               <h1 className="text-7xl gradient-color-1 font-bold text-white mb-4">
