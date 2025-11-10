@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import Navbar from '@/components/Navbar'
 import Dashboard from '@/components/Dashboard'
 import Register from '@/components/Register'
@@ -20,12 +21,25 @@ export default function Home() {
         <div className="container mx-auto px-4 py-18">
           {!account ? (
             <div className="text-center py-20 ">
-              <h1 className="text-7xl gradient-color-1 font-bold text-white mb-4">
-                Welcome to Crypto MLM Platform
-              </h1>
-              <p className="text-6xl text-white mb-8">
-                Connect your wallet to get started
-              </p>
+              <div>
+                <h1 className="text-7xl gradient-color-1 font-bold text-white mb-4">
+                  Welcome to Crypto MLM Platform
+                </h1>
+                <p className="text-6xl text-white mb-8">
+                  Connect your wallet to get started
+                </p>
+              </div>
+              <div className='max-w-4xl mx-auto py-10 flex flex-col justify-center items-center gap-10'>
+                <p>For Your Own Decentralized Business Matrix Platform</p>
+                <div className='flex justify-center items-center space-x-4'>
+                  <Link href="/registration" className="flex items-center justify-center space-x-2 bg-blue-gradient-primary hover:bg-white text-white px-6 py-3 rounded-lg transition-all w-full">
+                    <span>Registration</span>
+                  </Link>
+                  <Link href="/login" className="flex items-center justify-center space-x-2 bg-transparent border  hover:bg-white hover:text-black text-white px-6 py-3 rounded-lg transition-all w-full">
+                    <span>Login</span>
+                  </Link>     
+                </div>
+              </div>
               <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
                 <div className="gradient-card hover:scale-105 transition-transform duration-300">
                   <div className="gradient-card-inner">

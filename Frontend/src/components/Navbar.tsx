@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useWeb3 } from '@/contexts/Web3Context'
 import { FaWallet, FaSignOutAlt, FaBars, FaTimes } from 'react-icons/fa'
+import Link from 'next/link'
 
 export default function Navbar() {
   const { account, connectWallet, disconnectWallet, chainId } = useWeb3()
@@ -34,7 +35,9 @@ export default function Navbar() {
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
           <div className="flex items-center">
-            <h1 className="text-2xl font-bold text-white">Crypto MLM</h1>
+            <Link href="/">
+              <h1 className="text-2xl font-bold text-white">Crypto MLM</h1>
+            </Link>
           </div>
 
           {/* Desktop Menu Items */}
