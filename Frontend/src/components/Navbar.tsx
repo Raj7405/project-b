@@ -25,12 +25,12 @@ export default function Navbar() {
   const menuItems = [
     { name: 'Main', href: '#main' },
     { name: 'Partners', href: '#partners' },
-    { name: 'Statistics', href: '#statistics' },
+    { name: 'Dashboard', href: '/dashboard' },
     { name: 'Instructions', href: '#instructions' },
   ]
 
   return (
-    <nav className={`glass-effect fixed w-full top-0 z-50 shadow-lg ${isMobileMenuOpen && 'h-screen'}`}>
+    <nav className={`glass-effect sticky w-full top-0 z-50 shadow-lg ${isMobileMenuOpen && 'h-screen'}`}>
       <div className="container mx-auto px-4 py-7">
         <div className="flex justify-between items-center h-16">
           {/* Logo */}

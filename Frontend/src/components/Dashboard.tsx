@@ -5,6 +5,7 @@ import { useWeb3 } from '@/contexts/Web3Context'
 import { ethers } from 'ethers'
 import toast from 'react-hot-toast'
 import { FaUser, FaUsers, FaCheckCircle, FaCoins, FaLayerGroup } from 'react-icons/fa'
+import BinaryTree from './BinaryTree'
 
 export default function Dashboard() {
   const { account, contract, tokenContract } = useWeb3()
@@ -201,6 +202,9 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Binary Tree Visualization */}
+      <BinaryTree height="700px" />
 
       {/* Refresh Button */}
       <div className="text-center">

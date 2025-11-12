@@ -77,7 +77,7 @@ export default function Login() {
               href="/registration"
               className="text-orange-400 hover:text-orange-300 text-xl font-semibold underline transition-colors"
             >
-              Registration in tigertron.io
+              Registration in crypto_mlm
             </a>
           </div>
 

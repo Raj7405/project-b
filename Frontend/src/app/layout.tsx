@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { Web3Provider } from "@/contexts/Web3Context";
 import { Toaster } from "react-hot-toast";
+import Navbar from "@/components/Navbar";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -20,6 +21,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <Web3Provider>
+          <Navbar />
           {children}
           <Toaster position="top-right" />
         </Web3Provider>

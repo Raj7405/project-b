@@ -14,9 +14,7 @@ export default function Home() {
   const { account, isOwner } = useWeb3()
 
   return (
-    <div className="min-h-screen">
-      <Navbar />
-      
+    <div className="min-h-screen">      
       <section className="hero-mask-image w-full h-auto">
         <div className="container mx-auto px-4 py-18">
           {!account ? (
