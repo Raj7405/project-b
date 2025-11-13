@@ -11,8 +11,75 @@ interface IERC20 {
     function transfer(address recipient, uint256 amount) external returns (bool);
 }
 
+interface IERC20Metadata is IERC20 {
+    function decimals() external view returns (uint8);
+}
+
+library Address {
+    function isContract(address account) internal view returns (bool) {
+        return account.code.length > 0;
+    }
+
+    function functionCall(address target, bytes memory data, string memory errorMessage) internal returns (bytes memory) {
+        require(isContract(target), "Address: call to non-contract");
+        (bool success, bytes memory returndata) = target.call(data);
+        if (!success) {
+            if (returndata.length == 0) {
+                revert(errorMessage);
+            }
+            // Bubble revert reason
+            assembly {
+                revert(add(32, returndata), mload(returndata))
+            }
+        }
+
+        return returndata;
+    }
+
+    function functionCall(address target, bytes memory data) internal returns (bytes memory) {
+        return functionCall(target, data, "Address: low-level call failed");
+    }
+}
+
+library SafeERC20 {
+    using Address for address;
+
+    function safeTransfer(IERC20 token, address to, uint256 value) internal {
+        _callOptionalReturn(token, abi.encodeWithSelector(token.transfer.selector, to, value));
+    }
+
+    function safeTransferFrom(IERC20 token, address from, address to, uint256 value) internal {
+        _callOptionalReturn(token, abi.encodeWithSelector(token.transferFrom.selector, from, to, value));
+    }
+
+    function _callOptionalReturn(IERC20 token, bytes memory data) private {
+        bytes memory returndata = address(token).functionCall(data, "SafeERC20: call failed");
+        if (returndata.length > 0) {
+            require(abi.decode(returndata, (bool)), "SafeERC20: ERC20 operation did not succeed");
+        }
+    }
+}
+
+abstract contract ReentrancyGuard {
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+    uint256 private _status;
+
+    constructor() {
+        _status = _NOT_ENTERED;
+    }
+
+    modifier nonReentrant() {
+        require(_status != _ENTERED, "ReentrancyGuard: reentrant call");
+        _status = _ENTERED;
+        _;
+        _status = _NOT_ENTERED;
+    }
+}
+
 // Declares the main contract that implements the MLM system logic
-contract MLMSystem {
+contract MLMSystem is ReentrancyGuard {
+    using SafeERC20 for IERC20;
     
     // ============ STATE VARIABLES ============
     
@@ -22,16 +89,18 @@ contract MLMSystem {
     address public companyWallet;
     // Tracks the next user id to assign, starting at 1 (company is the first user)
     uint256 public lastUserId = 1;
+
+    uint8 public immutable tokenDecimals;
+    uint256 public immutable entryPrice;
+    uint256 public immutable retopupPrice;
+    uint256 public immutable directIncome;
+    uint256 public immutable companyFee;
     
     // Constants
-    // Sets the buy-in price for new users to join the system (20 USDT with 18 decimals)
-    uint256 public constant ENTRY_PRICE = 20 * 10**18; // $20 in USDT (18 decimals)
-    // Sets the required amount for a user to perform a retopup (40 USDT)
-    uint256 public constant RETOPUP_PRICE = 40 * 10**18; // $40 in USDT
-    // Defines the payout amount sent to referrers for most direct referrals (18 USDT)
-    uint256 public constant DIRECT_INCOME = 18 * 10**18; // $18
-    // Defines the fee retained by the company on each qualifying direct referral (2 USDT)
-    uint256 public constant COMPANY_FEE = 2 * 10**18; // $2
+    // Sets the buy-in price for new users to join the system (20 USDT scaled by token decimals)
+    // Sets the required amount for a user to perform a retopup (40 USDT scaled by token decimals)
+    // Defines the payout amount sent to referrers for most direct referrals (18 USDT scaled by token decimals)
+    // Defines the fee retained by the company on each qualifying direct referral (2 USDT scaled by token decimals)
     
     // ============ DATA STRUCTURES ============
     
@@ -117,6 +186,15 @@ contract MLMSystem {
         usdtToken = IERC20(_usdtToken);
         // Saves the company wallet address used for collecting fees and initialization
         companyWallet = _companyWallet;
+
+        uint8 decimals = IERC20Metadata(_usdtToken).decimals();
+        require(decimals <= 24, "Unsupported token decimals");
+        tokenDecimals = decimals;
+        uint256 factor = 10 ** uint256(decimals);
+        entryPrice = 20 * factor; // $20 in token units
+        retopupPrice = 40 * factor; // $40 in token units
+        directIncome = 18 * factor; // $18 in token units
+        companyFee = 2 * factor; // $2 in token units
         
         // Register company as first user (ID 1)
         // Assigns the initial user ID of 1 to the company wallet
@@ -136,7 +214,7 @@ contract MLMSystem {
      * @param _referrer Address of the referrer (sponsor)
      */
     // Allows an external caller to join the MLM system with a specified referrer
-    function register(address _referrer) external {
+    function register(address _referrer) external nonReentrant {
         // Ensures the caller has not registered previously
         require(!users[msg.sender].isActive, "User already registered");
          // Prevents a user from referring themselves to gain benefits
@@ -146,10 +224,7 @@ contract MLMSystem {
         
         // Transfer USDT from user to contract
         // Requests the USDT token contract to move the entry fee from the user into this contract
-        require(
-            usdtToken.transferFrom(msg.sender, address(this), ENTRY_PRICE),
-            "USDT transfer failed"
-        );
+        usdtToken.safeTransferFrom(msg.sender, address(this), entryPrice);
         
         // Create new user
         // Assigns a new sequential ID to the registering user
@@ -195,20 +270,14 @@ contract MLMSystem {
         } else {
             // 1st, 3rd, 4th... referrals: $18 to referrer, $2 to company
             // Sends the direct income portion to the referrer using the token transfer function
-            require(
-                usdtToken.transfer(_referrer, DIRECT_INCOME),
-                "Direct income transfer failed"
-            );
+            usdtToken.safeTransfer(_referrer, directIncome);
             // Updates the referrer's stored direct income total after successful transfer
-            users[_referrer].directIncome += DIRECT_INCOME;
+            users[_referrer].directIncome += directIncome;
             // Emits an event to record this direct income payout
-            emit DirectIncomeEarned(_referrer, msg.sender, DIRECT_INCOME);
+            emit DirectIncomeEarned(_referrer, msg.sender, directIncome);
             
             // Transfers the remaining company fee portion to the company wallet
-            require(
-                usdtToken.transfer(companyWallet, COMPANY_FEE),
-                "Company fee transfer failed"
-            );
+            usdtToken.safeTransfer(companyWallet, companyFee);
         }
     }
     
@@ -219,31 +288,29 @@ contract MLMSystem {
      */
     // Manages placement of users within the auto pool binary tree and distributes rewards
     function _placeInAutoPool(address _user, uint256 _poolLevel) private {
+        _initializePoolNode(_user, _poolLevel);
+
+        if (poolQueue[_poolLevel].length == 0) {
+            poolQueue[_poolLevel].push(_user);
+            emit PoolPlacement(_user, _poolLevel, address(0));
+            return;
+        }
+
+        (bool hasParent, address parent, uint256 parentIndex) = _findAvailableParent(_poolLevel);
+        if (!hasParent) {
+            delete poolQueue[_poolLevel];
+            poolQueue[_poolLevel].push(_user);
+            poolQueueIndex[_poolLevel] = 0;
+            emit PoolPlacement(_user, _poolLevel, address(0));
+            return;
+        }
+
         // Calculates the monetary value required for this pool level based on entry price doubling
-        uint256 poolValue = ENTRY_PRICE * (2 ** (_poolLevel - 1));
+        uint256 poolValue = entryPrice << (_poolLevel - 1);
         // Determines the portion of the pool value that will be paid out to the parent user
         uint256 distribution = poolValue * 90 / 100; // 90% distributed
         // Determines the portion retained by the company as fees at this level
-        uint256 fee = poolValue * 10 / 100; // 10% company fee
-        
-        // If this is first placement in this pool level, user becomes root
-        // Checks whether this level has any users yet and if not sets the first user as root
-        if (poolQueue[_poolLevel].length == 0) {
-            // Records the user occupying this node in the pool
-            userPools[_user][_poolLevel].user = _user;
-            // Stores the level within the user's pool node for reference
-            userPools[_user][_poolLevel].poolLevel = _poolLevel;
-            // Adds the user to the queue for potential child assignments
-            poolQueue[_poolLevel].push(_user);
-            // Emits an event noting placement without a parent since this is the root
-            emit PoolPlacement(_user, _poolLevel, address(0));
-            // Ends execution because no further placement actions are needed for the root
-            return;
-        }
-        
-        // Find parent who needs children
-        // Retrieves the next parent in the queue who still has an open child slot
-        address parent = _findAvailableParent(_poolLevel);
+        uint256 fee = poolValue - distribution; // 10% company fee
         
         // Place user under parent
         // Checks and assigns the left child slot if it is not yet occupied
@@ -277,15 +344,15 @@ contract MLMSystem {
             
             // Marks the parent node as complete to signal no more children are needed
             userPools[parent][_poolLevel].isComplete = true;
+            if (poolQueueIndex[_poolLevel] <= parentIndex) {
+                poolQueueIndex[_poolLevel] = parentIndex + 1;
+            }
             // Emits an event indicating the parent node has been completed
             emit PoolCompleted(parent, _poolLevel);
             
             // Distribute pool income to parent
             // Transfers the calculated distribution amount to the parent user
-            require(
-                usdtToken.transfer(parent, distribution),
-                "Pool income transfer failed"
-            );
+            usdtToken.safeTransfer(parent, distribution);
             // Updates the parent's cumulative pool income with the amount just transferred
             users[parent].poolIncome += distribution;
             // Emits an event to log the pool income payment
@@ -293,10 +360,7 @@ contract MLMSystem {
             
             // Company fee
             // Transfers the company fee portion of the pool payout
-            require(
-                usdtToken.transfer(companyWallet, fee),
-                "Company fee transfer failed"
-            );
+            usdtToken.safeTransfer(companyWallet, fee);
             
             // Auto-upgrade to next pool
             // Recursively places the parent into the next pool level for automatic upgrading
@@ -309,19 +373,21 @@ contract MLMSystem {
      * @param _poolLevel Pool level to search
      */
     // Identifies the next user in the queue with an open child spot for placement
-    function _findAvailableParent(uint256 _poolLevel) private returns (address) {
+    function _findAvailableParent(uint256 _poolLevel) private returns (bool, address, uint256) {
         // Retrieves the current index pointer for this level's queue
         uint256 currentIndex = poolQueueIndex[_poolLevel];
+        uint256 length = poolQueue[_poolLevel].length;
         
         // Iterates over queued addresses until a parent with open slots is located
-        while (currentIndex < poolQueue[_poolLevel].length) {
+        while (currentIndex < length) {
             // Fetches the candidate parent at the current queue index
             address candidate = poolQueue[_poolLevel][currentIndex];
             
             // Returns the candidate if either left or right slot remains unfilled
             if (!userPools[candidate][_poolLevel].leftFilled || 
                 !userPools[candidate][_poolLevel].rightFilled) {
-                return candidate;
+                poolQueueIndex[_poolLevel] = currentIndex;
+                return (true, candidate, currentIndex);
             }
             
             // Advances the index to examine the next candidate in the queue
@@ -330,29 +396,25 @@ contract MLMSystem {
         
         // Updates the stored index after iterating through the queue
         poolQueueIndex[_poolLevel] = currentIndex;
-        // Returns the candidate at the current index (assumes a valid entry exists)
-        return poolQueue[_poolLevel][currentIndex];
+        return (false, address(0), currentIndex);
     }
     
     /**
      * @dev User performs re-topup to activate level income
      */
     // Allows an active user to pay for reactivation and trigger level income distribution
-    function retopup() external {
+    function retopup() external nonReentrant {
         // Ensures only registered users can perform a retopup
         require(users[msg.sender].isActive, "User not registered");
         
         // Transfer $40 USDT from user
         // Collects the retopup fee from the user via the USDT token contract
-        require(
-            usdtToken.transferFrom(msg.sender, address(this), RETOPUP_PRICE),
-            "USDT transfer failed"
-        );
+        usdtToken.safeTransferFrom(msg.sender, address(this), retopupPrice);
         
         // Increments the user's retopup counter to track activity
         users[msg.sender].retopupCount++;
         // Emits an event indicating the retopup has been processed successfully
-        emit RetopupCompleted(msg.sender, RETOPUP_PRICE);
+        emit RetopupCompleted(msg.sender, retopupPrice);
         
         // Distribute to 10 levels
         // Triggers the distribution of retopup income up the sponsorship tree
@@ -379,13 +441,10 @@ contract MLMSystem {
             
             // Calculate income for this level
             // Computes the payout amount for the current level using basis point percentages
-            uint256 levelIncome = (RETOPUP_PRICE * levelPercentages[i]) / 10000;
+            uint256 levelIncome = (retopupPrice * levelPercentages[i]) / 10000;
             
             // Executes the transfer of level income to the current upline
-            require(
-                usdtToken.transfer(currentUpline, levelIncome),
-                "Level income transfer failed"
-            );
+            usdtToken.safeTransfer(currentUpline, levelIncome);
             
             // Updates the cumulative level income earned by this upline
             users[currentUpline].levelIncome += levelIncome;
@@ -402,12 +461,20 @@ contract MLMSystem {
         
         // Send company fee (10% of $40 = $4)
         // Calculates the remaining balance after level distributions to send to the company
-        uint256 companyFee = RETOPUP_PRICE - totalDistributed;
+        uint256 companyFeeRetopup = retopupPrice - totalDistributed;
         // Transfers the remaining amount to the company wallet as the fee portion
-        require(
-            usdtToken.transfer(companyWallet, companyFee),
-            "Company fee transfer failed"
-        );
+        usdtToken.safeTransfer(companyWallet, companyFeeRetopup);
+    }
+
+    function _initializePoolNode(address _user, uint256 _poolLevel) private {
+        PoolNode storage node = userPools[_user][_poolLevel];
+        node.user = _user;
+        node.left = address(0);
+        node.right = address(0);
+        node.poolLevel = _poolLevel;
+        node.leftFilled = false;
+        node.rightFilled = false;
+        node.isComplete = false;
     }
     
     // ============ VIEW FUNCTIONS ============
@@ -420,9 +487,9 @@ contract MLMSystem {
         uint256 id,
         address referrer,
         uint256 referralCount,
-        uint256 directIncome,
-        uint256 poolIncome,
-        uint256 levelIncome,
+        uint256 directIncomeAmount,
+        uint256 poolIncomeAmount,
+        uint256 levelIncomeAmount,
         bool isActive,
         uint256 retopupCount
     ) {
