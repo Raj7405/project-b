@@ -9,7 +9,7 @@ import BinaryTree from './BinaryTree'
 
 export default function Dashboard() {
   const { account, contract, tokenContract } = useWeb3()
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [userData, setUserData] = useState<any>(null)
   const [tokenBalance, setTokenBalance] = useState('0')
   const [packageAmount, setPackageAmount] = useState('0')
