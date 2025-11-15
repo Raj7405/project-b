@@ -29,27 +29,33 @@ async function main() {
   const companyWallet = process.env.COMPANY_WALLET || deployer.address;
   console.log("\n📝 Step 2: Company Wallet:", companyWallet);
 
-  // Step 3: Deploy DecentReferral Contract
-  console.log("\n📝 Step 3: Deploying DecentReferral Contract...");
+  // Step 3: Deploy MLMSystem Contract
+  console.log("\n📝 Step 3: Deploying MLMSystem Contract...");
   
-  const packageAmount = hre.ethers.parseUnits("20", 18); // 20 tokens
-  const reTopupAmount = hre.ethers.parseUnits("40", 18); // 40 tokens
-
-  console.log("Package Amount:", hre.ethers.formatUnits(packageAmount, 18), "tokens");
-  console.log("Re-Topup Amount:", hre.ethers.formatUnits(reTopupAmount, 18), "tokens");
-
-  const DecentReferral = await hre.ethers.getContractFactory("DecentReferral");
-  const decentReferral = await DecentReferral.deploy(
+  const MLMSystem = await hre.ethers.getContractFactory("MLMSystem");
+  const mlmSystem = await MLMSystem.deploy(
     tokenAddress,
-    companyWallet,
-    packageAmount,
-    reTopupAmount
+    companyWallet
   );
 
-  await decentReferral.waitForDeployment();
-  const contractAddress = await decentReferral.getAddress();
+  await mlmSystem.waitForDeployment();
+  const contractAddress = await mlmSystem.getAddress();
   
-  console.log("✅ DecentReferral deployed to:", contractAddress);
+  console.log("✅ MLMSystem deployed to:", contractAddress);
+
+  // Get contract configuration
+  const entryPrice = await mlmSystem.entryPrice();
+  const retopupPrice = await mlmSystem.retopupPrice();
+  const directIncome = await mlmSystem.directIncome();
+  const companyFee = await mlmSystem.companyFee();
+  const tokenDecimals = await mlmSystem.tokenDecimals();
+
+  console.log("\n📋 Contract Configuration:");
+  console.log("   Entry Price:", hre.ethers.formatUnits(entryPrice, tokenDecimals), "tokens");
+  console.log("   Retopup Price:", hre.ethers.formatUnits(retopupPrice, tokenDecimals), "tokens");
+  console.log("   Direct Income:", hre.ethers.formatUnits(directIncome, tokenDecimals), "tokens");
+  console.log("   Company Fee:", hre.ethers.formatUnits(companyFee, tokenDecimals), "tokens");
+  console.log("   Token Decimals:", tokenDecimals.toString());
 
   // Step 4: Get deployer token balance
   const deployerBalance = await token.balanceOf(deployer.address);
@@ -64,8 +70,11 @@ async function main() {
     tokenAddress: tokenAddress,
     deployer: deployer.address,
     companyWallet: companyWallet,
-    packageAmount: packageAmount.toString(),
-    reTopupAmount: reTopupAmount.toString(),
+    entryPrice: entryPrice.toString(),
+    retopupPrice: retopupPrice.toString(),
+    directIncome: directIncome.toString(),
+    companyFee: companyFee.toString(),
+    tokenDecimals: tokenDecimals.toString(),
     timestamp: new Date().toISOString()
   };
   
