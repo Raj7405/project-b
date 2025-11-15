@@ -102,6 +102,12 @@ contract MLMSystem is ReentrancyGuard {
     // Defines the payout amount sent to referrers for most direct referrals (18 USDT scaled by token decimals)
     // Defines the fee retained by the company on each qualifying direct referral (2 USDT scaled by token decimals)
     
+    // Auto Pool Constants
+    // Complete pool size for a 4-level binary tree (1 + 2 + 4 + 8 = 15 nodes)
+    uint256 public constant COMPLETE_POOL_SIZE = 15;
+    // Number of last nodes whose income is reserved for next pool entry
+    uint256 public constant LAST_NODES_COUNT = 4;
+    
     // ============ DATA STRUCTURES ============
     
     // Represents all on-chain information associated with a user
@@ -156,6 +162,14 @@ contract MLMSystem is ReentrancyGuard {
     mapping(uint256 => address[]) public poolQueue; // poolLevel => array of addresses waiting for children
     // For each pool level, tracks the current index in the queue used to find available parents
     mapping(uint256 => uint256) public poolQueueIndex; // poolLevel => current index in queue
+    // For each pool level, tracks count of completed nodes (for detecting complete pool)
+    mapping(uint256 => uint256) public completedNodesCount; // poolLevel => count of completed nodes
+    // For each pool level, maintains ordered list of completed nodes to identify last 4
+    mapping(uint256 => address[]) public completedNodesQueue; // poolLevel => ordered list of completed nodes
+    // For each user and pool level, tracks reserved income for next pool entry
+    mapping(address => mapping(uint256 => uint256)) public reservedIncome; // user => poolLevel => reserved amount
+    // For each pool level, tracks the last 4 nodes whose income is reserved
+    mapping(uint256 => address[4]) public lastFourNodes; // poolLevel => array of last 4 node addresses
     
     // Level income percentages (in basis points, 10000 = 100%)
     // Defines the percentage share (basis points) allocated to each of the 10 upline levels during retopup distribution
@@ -177,6 +191,14 @@ contract MLMSystem is ReentrancyGuard {
     event PoolCompleted(address indexed user, uint256 poolLevel);
     // Emitted when a user successfully performs a retopup transaction
     event RetopupCompleted(address indexed user, uint256 amount);
+    // Emitted when income is reserved for a user's next pool entry
+    event IncomeReserved(address indexed user, uint256 poolLevel, uint256 amount);
+    // Emitted when a pool level is completely filled (15 nodes)
+    event PoolLevelCompleted(uint256 poolLevel);
+    // Emitted when last 4 nodes are identified for a completed pool
+    event LastFourNodesIdentified(uint256 poolLevel, address[4] nodes);
+    // Emitted when a user auto-progresses to next pool using reserved income
+    event AutoProgression(address indexed user, uint256 fromPool, uint256 toPool, uint256 reservedAmountUsed);
     
     // ============ CONSTRUCTOR ============
     
@@ -212,9 +234,10 @@ contract MLMSystem is ReentrancyGuard {
     /**
      * @dev Register a new user with a referrer
      * @param _referrer Address of the referrer (sponsor)
+     * @return userId The newly assigned user ID
      */
     // Allows an external caller to join the MLM system with a specified referrer
-    function register(address _referrer) external nonReentrant {
+    function register(address _referrer) external nonReentrant returns (uint256 userId) {
         // Ensures the caller has not registered previously
         require(!users[msg.sender].isActive, "User already registered");
          // Prevents a user from referring themselves to gain benefits
@@ -228,13 +251,14 @@ contract MLMSystem is ReentrancyGuard {
         
         // Create new user
         // Assigns a new sequential ID to the registering user
-        users[msg.sender].id = lastUserId;
+        userId = lastUserId;
+        users[msg.sender].id = userId;
         // Records the referrer's address for this user
         users[msg.sender].referrer = _referrer;
         // Marks the new user as active to enable participation in the plan
         users[msg.sender].isActive = true;
         // Stores a reverse lookup from ID to the new user's address
-        idToAddress[lastUserId] = msg.sender;
+        idToAddress[userId] = msg.sender;
         // Increments the global user counter for the next registration
         lastUserId++;
         
@@ -247,7 +271,7 @@ contract MLMSystem is ReentrancyGuard {
         users[_referrer].referrals[refCount] = msg.sender;
         
         // Emits an event so off-chain systems can track the new registration
-        emit UserRegistered(msg.sender, _referrer, users[msg.sender].id);
+        emit UserRegistered(msg.sender, _referrer, userId);
         
         // Process income distribution
         // Delegates logic for distributing the entry fee based on referral count
@@ -298,9 +322,19 @@ contract MLMSystem is ReentrancyGuard {
 
         (bool hasParent, address parent, uint256 parentIndex) = _findAvailableParent(_poolLevel);
         if (!hasParent) {
+            // Start new tree cycle - reset queue and tracking
             delete poolQueue[_poolLevel];
             poolQueue[_poolLevel].push(_user);
             poolQueueIndex[_poolLevel] = 0;
+            
+            // Reset completed nodes tracking for new tree cycle (but keep lastFourNodes mapping)
+            // Only reset if previous cycle completed (15 nodes)
+            if (completedNodesCount[_poolLevel] >= COMPLETE_POOL_SIZE) {
+                // Clear completed queue for new cycle, but keep lastFourNodes for reference
+                delete completedNodesQueue[_poolLevel];
+                completedNodesCount[_poolLevel] = 0;
+            }
+            
             emit PoolPlacement(_user, _poolLevel, address(0));
             return;
         }
@@ -350,21 +384,76 @@ contract MLMSystem is ReentrancyGuard {
             // Emits an event indicating the parent node has been completed
             emit PoolCompleted(parent, _poolLevel);
             
-            // Distribute pool income to parent
-            // Transfers the calculated distribution amount to the parent user
-            usdtToken.safeTransfer(parent, distribution);
-            // Updates the parent's cumulative pool income with the amount just transferred
-            users[parent].poolIncome += distribution;
-            // Emits an event to log the pool income payment
-            emit PoolIncomeEarned(parent, _poolLevel, distribution);
+            // Track completed node in order
+            completedNodesQueue[_poolLevel].push(parent);
+            completedNodesCount[_poolLevel]++;
             
-            // Company fee
-            // Transfers the company fee portion of the pool payout
-            usdtToken.safeTransfer(companyWallet, fee);
+            // Check if this pool level is now complete (15 nodes)
+            bool isPoolComplete = completedNodesCount[_poolLevel] >= COMPLETE_POOL_SIZE;
+            bool isLastFour = false;
             
-            // Auto-upgrade to next pool
-            // Recursively places the parent into the next pool level for automatic upgrading
-            _placeInAutoPool(parent, _poolLevel + 1);
+            // Check if current parent is in last 4 (either from previous completion or current)
+            if (isPoolComplete) {
+                // Identify last 4 nodes when pool completes (first time)
+                if (completedNodesCount[_poolLevel] == COMPLETE_POOL_SIZE) {
+                    uint256 queueLength = completedNodesQueue[_poolLevel].length;
+                    if (queueLength >= LAST_NODES_COUNT) {
+                        // Get the last 4 nodes from the completed queue
+                        address[4] memory lastFour;
+                        uint256 startIndex = queueLength - LAST_NODES_COUNT;
+                        for (uint256 i = 0; i < LAST_NODES_COUNT; i++) {
+                            lastFour[i] = completedNodesQueue[_poolLevel][startIndex + i];
+                        }
+                        lastFourNodes[_poolLevel] = lastFour;
+                        emit LastFourNodesIdentified(_poolLevel, lastFour);
+                        emit PoolLevelCompleted(_poolLevel);
+                    }
+                }
+                
+                // Check if current parent is in last 4 (from previously identified last 4)
+                address[4] memory storedLastFour = lastFourNodes[_poolLevel];
+                for (uint256 i = 0; i < LAST_NODES_COUNT; i++) {
+                    if (storedLastFour[i] == parent && storedLastFour[i] != address(0)) {
+                        isLastFour = true;
+                        break;
+                    }
+                }
+            }
+            
+            // Handle income distribution based on last 4 rule
+            if (isPoolComplete && isLastFour) {
+                // Reserve income for last 4 nodes (for next pool entry)
+                reservedIncome[parent][_poolLevel] += distribution;
+                emit IncomeReserved(parent, _poolLevel, distribution);
+                
+                // Still send company fee
+                usdtToken.safeTransfer(companyWallet, fee);
+                
+                // Check if reserved income is sufficient for next pool entry
+                uint256 nextPoolEntryPrice = entryPrice << _poolLevel; // Next pool entry price
+                if (reservedIncome[parent][_poolLevel] >= nextPoolEntryPrice) {
+                    // Auto-progress to next pool using reserved income
+                    uint256 amountUsed = nextPoolEntryPrice;
+                    reservedIncome[parent][_poolLevel] -= amountUsed;
+                    emit AutoProgression(parent, _poolLevel, _poolLevel + 1, amountUsed);
+                    
+                    // Place in next pool level
+                    _placeInAutoPool(parent, _poolLevel + 1);
+                }
+            } else {
+                // Normal distribution for non-last-4 nodes
+                usdtToken.safeTransfer(parent, distribution);
+                users[parent].poolIncome += distribution;
+                emit PoolIncomeEarned(parent, _poolLevel, distribution);
+                
+                // Company fee
+                usdtToken.safeTransfer(companyWallet, fee);
+                
+                // Auto-upgrade to next pool (only if pool is not complete or not in last 4)
+                if (!isPoolComplete) {
+                    _placeInAutoPool(parent, _poolLevel + 1);
+                }
+            }
         }
     }
     
@@ -558,5 +647,62 @@ contract MLMSystem is ReentrancyGuard {
     function getTotalEarnings(address _user) external view returns (uint256) {
         // Adds together direct, pool, and level income totals for the given user address
         return users[_user].directIncome + users[_user].poolIncome + users[_user].levelIncome;
+    }
+    
+    /**
+     * @dev Get reserved income for a user at a specific pool level
+     * @param _user User address
+     * @param _poolLevel Pool level to check
+     * @return Reserved income amount
+     */
+    function getReservedIncome(address _user, uint256 _poolLevel) external view returns (uint256) {
+        return reservedIncome[_user][_poolLevel];
+    }
+    
+    /**
+     * @dev Get last 4 nodes for a completed pool level
+     * @param _poolLevel Pool level to check
+     * @return Array of last 4 node addresses
+     */
+    function getLastFourNodes(uint256 _poolLevel) external view returns (address[4] memory) {
+        return lastFourNodes[_poolLevel];
+    }
+    
+    /**
+     * @dev Get completed nodes count for a pool level
+     * @param _poolLevel Pool level to check
+     * @return Count of completed nodes
+     */
+    function getCompletedNodesCount(uint256 _poolLevel) external view returns (uint256) {
+        return completedNodesCount[_poolLevel];
+    }
+    
+    /**
+     * @dev Check if a pool level is complete (15 nodes)
+     * @param _poolLevel Pool level to check
+     * @return True if pool is complete
+     */
+    function isPoolLevelComplete(uint256 _poolLevel) external view returns (bool) {
+        return completedNodesCount[_poolLevel] >= COMPLETE_POOL_SIZE;
+    }
+    
+    /**
+     * @dev Process auto-progression for a user if they have sufficient reserved income
+     * @param _user User address to check
+     * @param _fromPool Pool level to progress from
+     */
+    function processAutoProgression(address _user, uint256 _fromPool) external {
+        uint256 nextPoolLevel = _fromPool + 1;
+        uint256 nextPoolEntryPrice = entryPrice << _fromPool;
+        
+        require(reservedIncome[_user][_fromPool] >= nextPoolEntryPrice, "Insufficient reserved income");
+        
+        // Use reserved income for next pool entry
+        uint256 amountUsed = nextPoolEntryPrice;
+        reservedIncome[_user][_fromPool] -= amountUsed;
+        emit AutoProgression(_user, _fromPool, nextPoolLevel, amountUsed);
+        
+        // Place in next pool level
+        _placeInAutoPool(_user, nextPoolLevel);
     }
 }
