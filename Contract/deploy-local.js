@@ -12,12 +12,12 @@ async function main() {
   const balance = await hre.ethers.provider.getBalance(deployer.address);
   console.log("Account balance:", hre.ethers.formatEther(balance), "BNB (simulated)\n");
 
-  // Step 1: Deploy Mock BEP-20 Token (simulating BUSD on BSC)
-  console.log("📝 Step 1: Deploying Mock BEP-20 Token (simulating BUSD)...");
+  // Step 1: Deploy Mock BEP-20 Token (simulating WBNB on BSC)
+  console.log("📝 Step 1: Deploying Mock BEP-20 Token (simulating WBNB)...");
   const ERC20Mock = await hre.ethers.getContractFactory("ERC20Mock");
   const token = await ERC20Mock.deploy(
-    "Test BUSD",
-    "TBUSD",
+    "Test WBNB",
+    "TWBNB",
     deployer.address,
     hre.ethers.parseUnits("1000000", 18) // 1 million tokens initial supply
   );
@@ -59,7 +59,7 @@ async function main() {
 
   // Step 4: Get deployer token balance
   const deployerBalance = await token.balanceOf(deployer.address);
-  console.log("\n📝 Step 4: Deployer token balance:", hre.ethers.formatUnits(deployerBalance, 18), "TBUSD");
+  console.log("\n📝 Step 4: Deployer token balance:", hre.ethers.formatUnits(deployerBalance, 18), "TWBNB");
 
   // Step 5: Save deployment info
   console.log("\n📝 Step 5: Saving deployment information...");
