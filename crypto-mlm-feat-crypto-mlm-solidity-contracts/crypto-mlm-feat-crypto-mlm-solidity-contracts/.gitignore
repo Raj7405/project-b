@@ -1,0 +1,96 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Environment variables (NEVER commit these!)
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by testing tools
+coverage/
+*.lcov
+.nyc_output/
+
+# Hardhat files
+cache/
+artifacts/
+typechain/
+typechain-types/
+
+# Deployment info (optional - you may want to commit for reference)
+deployments/*.json
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.code-workspace
+
+# OS specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+.temp/
+
+# Backend Express specific
+backend-express/node_modules/
+backend-express/dist/
+backend-express/.env
+backend-express/prisma/migrations/
+
+# Frontend specific
+Frontend/node_modules/
+Frontend/.next/
+Frontend/out/
+Frontend/.env.local
+
+# Contract specific
+Contract/node_modules/
+Contract/cache/
+Contract/artifacts/
+Contract/.env
+
+# Documentation backups (optional)
+*.md.backup
+*.bak
+
+# Test files (if you want to exclude)
+# *.test.js
+# *.spec.js
