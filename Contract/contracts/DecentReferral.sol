@@ -3,15 +3,15 @@
 // Specifies the version of the Solidity compiler this contract requires (0.8.0 or higher but less than 0.9.0)
 pragma solidity ^0.8.0;
 
-// Declares an interface for interacting with an ERC20-compliant token (in this case USDT)
-interface IERC20 {
+// Declares an interface for interacting with a BEP20-compliant token (in this case WBNB)
+interface IBEP20 {
     // Defines the function signature for transferring tokens from one address to another with prior allowance
     function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
     // Defines the function signature for transferring tokens directly from the caller to a recipient
     function transfer(address recipient, uint256 amount) external returns (bool);
 }
 
-interface IERC20Metadata is IERC20 {
+interface IBEP20Metadata is IBEP20 {
     function decimals() external view returns (uint8);
 }
 
@@ -41,21 +41,21 @@ library Address {
     }
 }
 
-library SafeERC20 {
+library SafeBEP20 {
     using Address for address;
 
-    function safeTransfer(IERC20 token, address to, uint256 value) internal {
+    function safeTransfer(IBEP20 token, address to, uint256 value) internal {
         _callOptionalReturn(token, abi.encodeWithSelector(token.transfer.selector, to, value));
     }
 
-    function safeTransferFrom(IERC20 token, address from, address to, uint256 value) internal {
+    function safeTransferFrom(IBEP20 token, address from, address to, uint256 value) internal {
         _callOptionalReturn(token, abi.encodeWithSelector(token.transferFrom.selector, from, to, value));
     }
 
-    function _callOptionalReturn(IERC20 token, bytes memory data) private {
-        bytes memory returndata = address(token).functionCall(data, "SafeERC20: call failed");
+    function _callOptionalReturn(IBEP20 token, bytes memory data) private {
+        bytes memory returndata = address(token).functionCall(data, "SafeBEP20: call failed");
         if (returndata.length > 0) {
-            require(abi.decode(returndata, (bool)), "SafeERC20: ERC20 operation did not succeed");
+            require(abi.decode(returndata, (bool)), "SafeBEP20: BEP20 operation did not succeed");
         }
     }
 }
@@ -79,12 +79,12 @@ abstract contract ReentrancyGuard {
 
 // Declares the main contract that implements the MLM system logic
 contract MLMSystem is ReentrancyGuard {
-    using SafeERC20 for IERC20;
+    using SafeBEP20 for IBEP20;
     
     // ============ STATE VARIABLES ============
     
-    // Holds a reference to the USDT token contract so we can invoke ERC20 functions
-    IERC20 public usdtToken;
+    // Holds a reference to the WBNB token contract so we can invoke BEP20 functions
+    IBEP20 public bnbToken;
     // Stores the wallet address owned by the company to receive fees
     address public companyWallet;
     // Tracks the next user id to assign, starting at 1 (company is the first user)
@@ -97,10 +97,10 @@ contract MLMSystem is ReentrancyGuard {
     uint256 public immutable companyFee;
     
     // Constants
-    // Sets the buy-in price for new users to join the system (20 USDT scaled by token decimals)
-    // Sets the required amount for a user to perform a retopup (40 USDT scaled by token decimals)
-    // Defines the payout amount sent to referrers for most direct referrals (18 USDT scaled by token decimals)
-    // Defines the fee retained by the company on each qualifying direct referral (2 USDT scaled by token decimals)
+    // Sets the buy-in price for new users to join the system (20 BNB scaled by token decimals)
+    // Sets the required amount for a user to perform a retopup (40 BNB scaled by token decimals)
+    // Defines the payout amount sent to referrers for most direct referrals (18 BNB scaled by token decimals)
+    // Defines the fee retained by the company on each qualifying direct referral (2 BNB scaled by token decimals)
     
     // Auto Pool Constants
     // Complete pool size for a 4-level binary tree (1 + 2 + 4 + 8 = 15 nodes)
@@ -203,20 +203,20 @@ contract MLMSystem is ReentrancyGuard {
     // ============ CONSTRUCTOR ============
     
     // Executes once during deployment to set up the token reference and seed the system
-    constructor(address _usdtToken, address _companyWallet) {
-        // Stores the ERC20 token instance to interact with the USDT contract at runtime
-        usdtToken = IERC20(_usdtToken);
+    constructor(address _bnbToken, address _companyWallet) {
+        // Stores the BEP20 token instance to interact with the WBNB contract at runtime
+        bnbToken = IBEP20(_bnbToken);
         // Saves the company wallet address used for collecting fees and initialization
         companyWallet = _companyWallet;
 
-        uint8 decimals = IERC20Metadata(_usdtToken).decimals();
+        uint8 decimals = IBEP20Metadata(_bnbToken).decimals();
         require(decimals <= 24, "Unsupported token decimals");
         tokenDecimals = decimals;
         uint256 factor = 10 ** uint256(decimals);
-        entryPrice = 20 * factor; // $20 in token units
-        retopupPrice = 40 * factor; // $40 in token units
-        directIncome = 18 * factor; // $18 in token units
-        companyFee = 2 * factor; // $2 in token units
+        entryPrice = 20 * factor; // 20 BNB in token units
+        retopupPrice = 40 * factor; // 40 BNB in token units
+        directIncome = 18 * factor; // 18 BNB in token units
+        companyFee = 2 * factor; // 2 BNB in token units
         
         // Register company as first user (ID 1)
         // Assigns the initial user ID of 1 to the company wallet
@@ -245,9 +245,9 @@ contract MLMSystem is ReentrancyGuard {
         // Ensures the provided referrer is an active participant
         require(users[_referrer].isActive, "Referrer not active");
         
-        // Transfer USDT from user to contract
-        // Requests the USDT token contract to move the entry fee from the user into this contract
-        usdtToken.safeTransferFrom(msg.sender, address(this), entryPrice);
+        // Transfer WBNB from user to contract
+        // Requests the WBNB token contract to move the entry fee from the user into this contract
+        bnbToken.safeTransferFrom(msg.sender, address(this), entryPrice);
         
         // Create new user
         // Assigns a new sequential ID to the registering user
@@ -287,21 +287,21 @@ contract MLMSystem is ReentrancyGuard {
     function _processDirectIncome(address _referrer, uint256 _refCount) private {
         // Checks whether this is the second referral which triggers automatic pool placement
         if (_refCount == 2) {
-            // 2nd referral: All $20 goes to Auto Pool
+            // 2nd referral: All 20 BNB goes to Auto Pool
             // Places the new referral into the auto pool at level 1 instead of paying direct income
             _placeInAutoPool(msg.sender, 1);
             
         } else {
-            // 1st, 3rd, 4th... referrals: $18 to referrer, $2 to company
+            // 1st, 3rd, 4th... referrals: 18 BNB to referrer, 2 BNB to company
             // Sends the direct income portion to the referrer using the token transfer function
-            usdtToken.safeTransfer(_referrer, directIncome);
+            bnbToken.safeTransfer(_referrer, directIncome);
             // Updates the referrer's stored direct income total after successful transfer
             users[_referrer].directIncome += directIncome;
             // Emits an event to record this direct income payout
             emit DirectIncomeEarned(_referrer, msg.sender, directIncome);
             
             // Transfers the remaining company fee portion to the company wallet
-            usdtToken.safeTransfer(companyWallet, companyFee);
+            bnbToken.safeTransfer(companyWallet, companyFee);
         }
     }
     
@@ -427,7 +427,7 @@ contract MLMSystem is ReentrancyGuard {
                 emit IncomeReserved(parent, _poolLevel, distribution);
                 
                 // Still send company fee
-                usdtToken.safeTransfer(companyWallet, fee);
+                bnbToken.safeTransfer(companyWallet, fee);
                 
                 // Check if reserved income is sufficient for next pool entry
                 uint256 nextPoolEntryPrice = entryPrice << _poolLevel; // Next pool entry price
@@ -442,12 +442,12 @@ contract MLMSystem is ReentrancyGuard {
                 }
             } else {
                 // Normal distribution for non-last-4 nodes
-                usdtToken.safeTransfer(parent, distribution);
+                bnbToken.safeTransfer(parent, distribution);
                 users[parent].poolIncome += distribution;
                 emit PoolIncomeEarned(parent, _poolLevel, distribution);
                 
                 // Company fee
-                usdtToken.safeTransfer(companyWallet, fee);
+                bnbToken.safeTransfer(companyWallet, fee);
                 
                 // Auto-upgrade to next pool (only if pool is not complete or not in last 4)
                 if (!isPoolComplete) {
@@ -496,9 +496,9 @@ contract MLMSystem is ReentrancyGuard {
         // Ensures only registered users can perform a retopup
         require(users[msg.sender].isActive, "User not registered");
         
-        // Transfer $40 USDT from user
-        // Collects the retopup fee from the user via the USDT token contract
-        usdtToken.safeTransferFrom(msg.sender, address(this), retopupPrice);
+        // Transfer 40 BNB from user
+        // Collects the retopup fee from the user via the WBNB token contract
+        bnbToken.safeTransferFrom(msg.sender, address(this), retopupPrice);
         
         // Increments the user's retopup counter to track activity
         users[msg.sender].retopupCount++;
@@ -532,27 +532,35 @@ contract MLMSystem is ReentrancyGuard {
             // Computes the payout amount for the current level using basis point percentages
             uint256 levelIncome = (retopupPrice * levelPercentages[i]) / 10000;
             
-            // Executes the transfer of level income to the current upline
-            usdtToken.safeTransfer(currentUpline, levelIncome);
+            // Check if the upline user has done a retopup
+            if (users[currentUpline].retopupCount > 0) {
+                // Upline has done retopup: send income to upline
+                // Executes the transfer of level income to the current upline
+                bnbToken.safeTransfer(currentUpline, levelIncome);
+                
+                // Updates the cumulative level income earned by this upline
+                users[currentUpline].levelIncome += levelIncome;
+                
+                // Emits an event recording the level income transfer details
+                emit LevelIncomeEarned(currentUpline, _user, i + 1, levelIncome);
+            } else {
+                // Upline has not done retopup: send their share to company wallet
+                bnbToken.safeTransfer(companyWallet, levelIncome);
+            }
             
-            // Updates the cumulative level income earned by this upline
-            users[currentUpline].levelIncome += levelIncome;
             // Adds the payout to the running total distributed amount
             totalDistributed += levelIncome;
-            
-            // Emits an event recording the level income transfer details
-            emit LevelIncomeEarned(currentUpline, _user, i + 1, levelIncome);
             
             // Move to next upline
             // Advances the traversal to the next referrer up the chain
             currentUpline = users[currentUpline].referrer;
         }
         
-        // Send company fee (10% of $40 = $4)
+        // Send company fee (10% of 40 BNB = 4 BNB)
         // Calculates the remaining balance after level distributions to send to the company
         uint256 companyFeeRetopup = retopupPrice - totalDistributed;
         // Transfers the remaining amount to the company wallet as the fee portion
-        usdtToken.safeTransfer(companyWallet, companyFeeRetopup);
+        bnbToken.safeTransfer(companyWallet, companyFeeRetopup);
     }
 
     function _initializePoolNode(address _user, uint256 _poolLevel) private {
