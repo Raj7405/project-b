@@ -104,7 +104,7 @@ async function main() {
   console.log("2. ⚠️  Configure MetaMask for Local BSC Simulation:");
   console.log("   - Network: Hardhat Local (simulating BSC)");
   console.log("   - RPC URL: http://127.0.0.1:8545");
-  console.log("   - Chain ID: 31337");
+  console.log("   - Chain ID: 1337");
   console.log("   - Currency Symbol: BNB (simulated)");
   console.log("3. 🔑 Import a test account into MetaMask (see Hardhat node output for private keys)");
   console.log("4. 🗄️  Set up PostgreSQL and run backend:");

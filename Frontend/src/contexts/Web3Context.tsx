@@ -29,7 +29,7 @@ const Web3Context = createContext<Web3ContextType>({
   disconnectWallet: () => {},
 })
 
-export const useWeb3 = () => useContext(Web3Context)
+export const  useWeb3 = () => useContext(Web3Context)
 
 export function Web3Provider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<string | null>(null)
@@ -58,9 +58,22 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       const contract = new ethers.Contract(contractAddress, CONTRACT_ABI, signer)
       const tokenContract = new ethers.Contract(tokenAddress, TOKEN_ABI, signer)
 
-      // Check if user is owner
-      const owner = await contract.owner()
-      const isOwner = owner.toLowerCase() === accounts[0].toLowerCase()
+      // Check if contract is actually deployed (has code)
+      const contractCode = await provider.getCode(contractAddress)
+      // if (contractCode === '0x') {
+      //   toast.error('No contract found at this address! Please deploy contracts first.')
+      //   throw new Error('Contract not deployed at the specified address.')
+      // }
+
+      // Check if user is company wallet (ID 1)
+      let isOwner = false
+      try {
+        const companyWallet = await contract.companyWallet()
+        isOwner = companyWallet.toLowerCase() === accounts[0].toLowerCase()
+      } catch (error: any) {
+        console.warn('Could not fetch company wallet:', error.message)
+        // Continue anyway - not critical for wallet connection
+      }
 
       setAccount(accounts[0])
       setProvider(provider)
@@ -104,6 +117,14 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // Log wallet info for debugging
+  useEffect(() => {
+    if (account) {
+      console.log("🔐 Connected Wallet Address:", account)
+      console.log("🌐 Network Chain ID:", chainId)
+      console.log("👤 Is Owner:", isOwner)
+    }
+  }, [account, chainId, isOwner])
   return (
     <Web3Context.Provider
       value={{

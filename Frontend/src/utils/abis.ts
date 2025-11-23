@@ -1,30 +1,49 @@
-// Contract ABIs
+// Contract ABIs - Updated to match DecentReferral.sol (MLMSystem contract)
+
 export const CONTRACT_ABI = [
-  "function register(uint256 referrerId) external",
-  "function reTopup() external",
-  "function getUserId(address wallet) external view returns (uint256)",
-  "function userInfo(uint256 id) external view returns (address wallet, uint256 parentId, uint16 sponsorCnt, bool exists_, bool hasReTopup_)",
-  "function isEligibleForReTopupIncome(uint256 id) external view returns (bool)",
-  "function isEligibleForReTopupIncomeByWallet(address wallet) external view returns (bool)",
-  "function getPoolQueueLength() external view returns (uint256)",
-  "function getPoolNodesCount() external view returns (uint256)",
-  "function packageAmount() external view returns (uint256)",
-  "function reTopupAmount() external view returns (uint256)",
+  // Main Functions
+  "function register(address _referrer) external returns (uint256 userId)",
+  "function retopup() external",
+  "function processAutoProgression(address _user, uint256 _fromPool) external",
+  
+  // View Functions
+  "function getUserInfo(address _user) external view returns (uint256 id, address referrer, uint256 referralCount, uint256 directIncomeAmount, uint256 poolIncomeAmount, uint256 levelIncomeAmount, bool isActive, uint256 retopupCount)",
+  "function getUserReferrals(address _user, uint256 _count) external view returns (address[] memory)",
+  "function getPoolNode(address _user, uint256 _poolLevel) external view returns (address user, address left, address right, uint256 poolLevel, bool leftFilled, bool rightFilled, bool isComplete)",
+  "function getTotalEarnings(address _user) external view returns (uint256)",
+  "function getReservedIncome(address _user, uint256 _poolLevel) external view returns (uint256)",
+  "function getLastFourNodes(uint256 _poolLevel) external view returns (address[4] memory)",
+  "function getCompletedNodesCount(uint256 _poolLevel) external view returns (uint256)",
+  "function isPoolLevelComplete(uint256 _poolLevel) external view returns (bool)",
+  
+  // Public State Variables (immutable variables are accessible as functions)
+  "function usdtToken() external view returns (address)",
   "function companyWallet() external view returns (address)",
-  "function owner() external view returns (address)",
-  "function pause() external",
-  "function unpause() external",
-  "function paused() external view returns (bool)",
-  "function setCompanyWallet(address _company) external",
-  "function distributePoolPayouts(uint256[] calldata recipientIds, uint256[] calldata amounts) external",
-  "function emergencyWithdraw(address to, uint256 amount) external",
-  "event UserRegistered(uint256 indexed id, address indexed wallet, uint256 indexed parentId, bool wentToAutoPool)",
-  "event DirectIncomePaid(uint256 indexed toId, address indexed to, uint256 amount)",
-  "event CompanyFeePaid(address indexed to, uint256 amount)",
-  "event AutoPoolEnqueued(uint256 indexed id, address indexed wallet)",
-  "event AutoPoolPlaced(uint256 indexed nodeId, uint256 indexed parentId, uint256 position)",
-  "event ReTopupProcessed(uint256 indexed id, address indexed wallet, uint256 amount)",
-  "event ReTopupSkippedToCompany(uint256 indexed skippedId, address indexed skippedWallet, uint256 amount, uint8 level)"
+  "function lastUserId() external view returns (uint256)",
+  "function entryPrice() external view returns (uint256)",
+  "function retopupPrice() external view returns (uint256)",
+  "function directIncome() external view returns (uint256)",
+  "function companyFee() external view returns (uint256)",
+  "function tokenDecimals() external view returns (uint8)",
+  "function levelPercentages(uint256) external view returns (uint256)",
+  "function idToAddress(uint256) external view returns (address)",
+  
+  // Constants
+  "function COMPLETE_POOL_SIZE() external pure returns (uint256)",
+  "function LAST_NODES_COUNT() external pure returns (uint256)",
+  
+  // Events
+  "event UserRegistered(address indexed user, address indexed referrer, uint256 userId)",
+  "event DirectIncomeEarned(address indexed user, address indexed from, uint256 amount)",
+  "event PoolIncomeEarned(address indexed user, uint256 poolLevel, uint256 amount)",
+  "event LevelIncomeEarned(address indexed user, address indexed from, uint256 level, uint256 amount)",
+  "event PoolPlacement(address indexed user, uint256 poolLevel, address indexed parent)",
+  "event PoolCompleted(address indexed user, uint256 poolLevel)",
+  "event RetopupCompleted(address indexed user, uint256 amount)",
+  "event IncomeReserved(address indexed user, uint256 poolLevel, uint256 amount)",
+  "event PoolLevelCompleted(uint256 poolLevel)",
+  "event LastFourNodesIdentified(uint256 poolLevel, address[4] nodes)",
+  "event AutoProgression(address indexed user, uint256 fromPool, uint256 toPool, uint256 reservedAmountUsed)"
 ]
 
 export const TOKEN_ABI = [

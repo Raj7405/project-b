@@ -6,6 +6,7 @@ import { ethers } from 'ethers'
 import toast from 'react-hot-toast'
 import { FaUser, FaUsers, FaCheckCircle, FaCoins, FaLayerGroup } from 'react-icons/fa'
 import BinaryTree from './BinaryTree'
+import BinaryTreeLive from './BinaryTreeLive'
 
 export default function Dashboard() {
   const { account, contract, tokenContract } = useWeb3()
@@ -26,44 +27,71 @@ export default function Dashboard() {
     try {
       setLoading(true)
       
-      // Get user ID
-      const userId = await contract.getUserId(account)
+      if (!contract || !account) {
+        setLoading(false)
+        return
+      }
       
-      if (userId.toString() === '0') {
+      // Check if contract is deployed at this address
+      const contractCode = await contract.runner?.provider?.getCode(await contract.getAddress())
+      if (!contractCode || contractCode === '0x') {
+        toast.error('Contract not deployed at this address. Please deploy contracts and update .env.local')
+        setLoading(false)
+        return
+      }
+      
+      // Get user info - if user is not registered, this will return default values
+      let userInfo
+      try {
+        userInfo = await contract.getUserInfo(account)
+      } catch (error: any) {
+        // If contract doesn't exist or call fails, handle gracefully
+        if (error.message?.includes('could not decode') || error.message?.includes('BAD_DATA')) {
+          toast.error('Contract not found at this address. Please check .env.local and redeploy contracts.')
+          setLoading(false)
+          return
+        }
+        throw error
+      }
+      
+      if (!userInfo.isActive) {
         setUserData(null)
         setLoading(false)
         return
       }
 
-      // Get user info
-      const userInfo = await contract.userInfo(userId)
-      const [wallet, parentId, sponsorCount, exists, hasReTopup] = userInfo
-
-      // Get token balance
+      // Get token balance and decimals
       const balance = await tokenContract.balanceOf(account)
+      const tokenDecimals = await tokenContract.decimals()
       
-      // Get package and retopup amounts
-      const pkgAmt = await contract.packageAmount()
-      const rtAmt = await contract.reTopupAmount()
-      
-      // Get pool info
-      const qLen = await contract.getPoolQueueLength()
-      const nCount = await contract.getPoolNodesCount()
+      // Get package and retopup amounts (using lowercase function names for immutable variables)
+      const entryPrice = await contract.entryPrice()
+      const retopupPrice = await contract.retopupPrice()
+
+      // Get total earnings
+      const totalEarnings = await contract.getTotalEarnings(account)
 
       setUserData({
-        id: userId.toString(),
-        wallet,
-        parentId: parentId.toString(),
-        sponsorCount: sponsorCount.toString(),
-        hasReTopup,
+        id: userInfo.id.toString(),
+        wallet: account,
+        referrer: userInfo.referrer,
+        referralCount: userInfo.referralCount.toString(),
+        directIncome: ethers.formatUnits(userInfo.directIncomeAmount, tokenDecimals),
+        poolIncome: ethers.formatUnits(userInfo.poolIncomeAmount, tokenDecimals),
+        levelIncome: ethers.formatUnits(userInfo.levelIncomeAmount, tokenDecimals),
+        totalEarnings: ethers.formatUnits(totalEarnings, tokenDecimals),
+        retopupCount: userInfo.retopupCount.toString(),
+        hasReTopup: userInfo.retopupCount > 0,
       })
       
-      setTokenBalance(ethers.formatUnits(balance, 18))
-      setPackageAmount(ethers.formatUnits(pkgAmt, 18))
-      setReTopupAmount(ethers.formatUnits(rtAmt, 18))
+      setTokenBalance(ethers.formatUnits(balance, tokenDecimals))
+      setPackageAmount(ethers.formatUnits(entryPrice, tokenDecimals))
+      setReTopupAmount(ethers.formatUnits(retopupPrice, tokenDecimals))
+      
+      // Pool info - we'll need to implement if needed, or remove this
       setPoolInfo({
-        queueLength: Number(qLen),
-        nodesCount: Number(nCount),
+        queueLength: 0, // Not available in current contract
+        nodesCount: 0,  // Not available in current contract
       })
 
       setLoading(false)
@@ -111,8 +139,8 @@ export default function Dashboard() {
         <div className="bg-white rounded-lg shadow-lg p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-600 text-sm">Sponsors</p>
-              <p className="text-2xl font-bold text-success">{userData.sponsorCount}</p>
+              <p className="text-gray-600 text-sm">Direct Referrals</p>
+              <p className="text-2xl font-bold text-success">{userData.referralCount}</p>
             </div>
             <FaUsers className="text-4xl text-success/20" />
           </div>
@@ -142,45 +170,70 @@ export default function Dashboard() {
       </div>
 
       {/* User Details */}
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-xl font-bold mb-4 flex items-center">
-          <FaUser className="mr-2" /> User Information
-        </h2>
-        <div className="grid md:grid-cols-2 gap-4">
-          <div>
-            <p className="text-gray-600 text-sm">Wallet Address</p>
-            <p className="font-mono text-sm break-all">{userData.wallet}</p>
-          </div>
-          <div>
-            <p className="text-gray-600 text-sm">Parent ID</p>
-            <p className="font-semibold">{userData.parentId === '0' ? 'Company (Root)' : userData.parentId}</p>
-          </div>
-          <div>
-            <p className="text-gray-600 text-sm">Registration Package</p>
-            <p className="font-semibold">${packageAmount} tokens</p>
-          </div>
-          <div>
-            <p className="text-gray-600 text-sm">Re-Topup Amount</p>
-            <p className="font-semibold">${reTopupAmount} tokens</p>
+      <div className="gradient-card overflow-hidden h-full">
+        <div className="bg-secondary rounded-lg shadow-lg p-6 gradient-card-inner h-full">
+          <h2 className="text-xl font-bold mb-4 flex items-center">
+            <FaUser className="mr-2" /> User Information
+          </h2>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <p className="text-gray-600 text-sm">Wallet Address</p>
+              <p className="font-mono text-sm break-all">{userData.wallet}</p>
+            </div>
+            <div>
+              <p className="text-gray-600 text-sm">Referrer Address</p>
+              <p className="font-mono text-sm break-all">{userData.referrer || 'Company (Root)'}</p>
+            </div>
+            <div>
+              <p className="text-gray-600 text-sm">Direct Income</p>
+              <p className="font-semibold">${parseFloat(userData.directIncome).toFixed(2)}</p>
+            </div>
+            <div>
+              <p className="text-gray-600 text-sm">Pool Income</p>
+              <p className="font-semibold">${parseFloat(userData.poolIncome).toFixed(2)}</p>
+            </div>
+            <div>
+              <p className="text-gray-600 text-sm">Level Income</p>
+              <p className="font-semibold">${parseFloat(userData.levelIncome).toFixed(2)}</p>
+            </div>
+            <div>
+              <p className="text-gray-600 text-sm">Total Earnings</p>
+              <p className="font-semibold text-success">${parseFloat(userData.totalEarnings).toFixed(2)}</p>
+            </div>
+            <div>
+              <p className="text-gray-600 text-sm">Re-Topup Count</p>
+              <p className="font-semibold">{userData.retopupCount}</p>
+            </div>
+            <div>
+              <p className="text-gray-600 text-sm">Re-Topup Amount</p>
+              <p className="font-semibold">${reTopupAmount} tokens</p>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Auto Pool Info */}
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-xl font-bold mb-4 flex items-center">
-          <FaLayerGroup className="mr-2" /> Auto Pool Information
-        </h2>
-        <div className="grid md:grid-cols-2 gap-4">
-          <div>
-            <p className="text-gray-600 text-sm">Pool Queue Length</p>
-            <p className="text-2xl font-bold text-primary">{poolInfo.queueLength}</p>
-            <p className="text-xs text-gray-500 mt-1">Users waiting to be placed</p>
-          </div>
-          <div>
-            <p className="text-gray-600 text-sm">Total Pool Nodes</p>
-            <p className="text-2xl font-bold text-secondary">{poolInfo.nodesCount}</p>
-            <p className="text-xs text-gray-500 mt-1">Users in the binary tree</p>
+      {/* Income Breakdown */}
+      <div className="gradient-card overflow-hidden h-full">
+        <div className="bg-secondary rounded-lg shadow-lg p-6 gradient-card-inner h-full">
+          <h2 className="text-xl font-bold mb-4 flex items-center">
+            <FaCoins className="mr-2" /> Income Breakdown
+          </h2>
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="border-l-4 border-blue-500 pl-4">
+              <p className="text-gray-600 text-sm">Direct Income</p>
+              <p className="text-2xl font-bold text-blue-600">${parseFloat(userData.directIncome).toFixed(2)}</p>
+              <p className="text-xs text-gray-500 mt-1">From direct referrals</p>
+            </div>
+            <div className="border-l-4 border-green-500 pl-4">
+              <p className="text-gray-600 text-sm">Pool Income</p>
+              <p className="text-2xl font-bold text-green-600">${parseFloat(userData.poolIncome).toFixed(2)}</p>
+              <p className="text-xs text-gray-500 mt-1">From auto pool</p>
+            </div>
+            <div className="border-l-4 border-purple-500 pl-4">
+              <p className="text-gray-600 text-sm">Level Income</p>
+              <p className="text-2xl font-bold text-purple-600">${parseFloat(userData.levelIncome).toFixed(2)}</p>
+              <p className="text-xs text-gray-500 mt-1">From retopups</p>
+            </div>
           </div>
         </div>
       </div>
@@ -205,6 +258,8 @@ export default function Dashboard() {
 
       {/* Binary Tree Visualization */}
       <BinaryTree height="700px" />
+
+      <BinaryTreeLive/>
 
       {/* Refresh Button */}
       <div className="text-center">

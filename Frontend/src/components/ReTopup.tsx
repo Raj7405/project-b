@@ -15,27 +15,57 @@ export default function ReTopup() {
   const [reTopupAmount, setReTopupAmount] = useState('0')
 
   useEffect(() => {
-    if (contract && account) {
+    if (contract && tokenContract && account) {
       checkRegistration()
     }
-  }, [contract, account])
+  }, [contract, tokenContract, account])
 
   const checkRegistration = async () => {
     try {
-      const userId = await contract.getUserId(account)
-      if (userId.toString() === '0') {
+      if (!contract || !tokenContract || !account) return
+      
+      // Check if contract exists
+      try {
+        const contractCode = await contract.runner?.provider?.getCode(await contract.getAddress())
+        if (!contractCode || contractCode === '0x') {
+          console.error('Contract not deployed at this address')
+          setIsRegistered(false)
+          return
+        }
+      } catch (checkError) {
+        console.error('Error checking contract:', checkError)
+        setIsRegistered(false)
+        return
+      }
+      
+      // Get user info
+      let userInfo
+      try {
+        userInfo = await contract.getUserInfo(account)
+      } catch (error: any) {
+        // Handle contract not found error
+        if (error.message?.includes('could not decode') || error.message?.includes('BAD_DATA')) {
+          console.error('Contract not found. Please check deployment and .env.local')
+          setIsRegistered(false)
+          return
+        }
+        throw error
+      }
+      
+      if (!userInfo.isActive) {
         setIsRegistered(false)
         return
       }
 
       setIsRegistered(true)
-      const userInfo = await contract.userInfo(userId)
-      setHasReTopup(userInfo[4])
+      setHasReTopup(userInfo.retopupCount > 0)
 
-      const rtAmount = await contract.reTopupAmount()
-      setReTopupAmount(ethers.formatUnits(rtAmount, 18))
+      const rtAmount = await contract.retopupPrice()
+      const tokenDecimals = await tokenContract.decimals()
+      setReTopupAmount(ethers.formatUnits(rtAmount, tokenDecimals))
     } catch (error) {
       console.error('Error checking registration:', error)
+      setIsRegistered(false)
     }
   }
 
@@ -47,7 +77,7 @@ export default function ReTopup() {
 
     try {
       setApproving(true)
-      const amount = await contract.reTopupAmount()
+      const amount = await contract.retopupPrice()
       
       toast.loading('Approving tokens...')
       const tx = await tokenContract.approve(await contract.getAddress(), amount)
@@ -74,7 +104,7 @@ export default function ReTopup() {
       setLoading(true)
 
       // Check allowance
-      const amount = await contract.reTopupAmount()
+      const amount = await contract.retopupPrice()
       const allowance = await tokenContract.allowance(account, await contract.getAddress())
       
       if (allowance < amount) {
@@ -85,7 +115,7 @@ export default function ReTopup() {
 
       // Re-topup
       toast.loading('Processing re-topup...')
-      const tx = await contract.reTopup()
+      const tx = await contract.retopup()
       await tx.wait()
       
       toast.dismiss()

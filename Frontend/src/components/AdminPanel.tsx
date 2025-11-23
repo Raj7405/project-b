@@ -1,110 +1,58 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useWeb3 } from '@/contexts/Web3Context'
 import { ethers } from 'ethers'
 import toast from 'react-hot-toast'
-import { FaShieldAlt, FaPause, FaPlay, FaCoins, FaCog } from 'react-icons/fa'
+import { FaShieldAlt, FaInfoCircle } from 'react-icons/fa'
 
 export default function AdminPanel() {
   const { contract } = useWeb3()
   const [loading, setLoading] = useState(false)
-  const [isPaused, setIsPaused] = useState(false)
-  const [newCompanyWallet, setNewCompanyWallet] = useState('')
-  const [withdrawAddress, setWithdrawAddress] = useState('')
-  const [withdrawAmount, setWithdrawAmount] = useState('')
+  const [contractInfo, setContractInfo] = useState<any>(null)
 
-  const checkPauseStatus = async () => {
-    try {
-      const paused = await contract.paused()
-      setIsPaused(paused)
-    } catch (error) {
-      console.error('Error checking pause status:', error)
+  useEffect(() => {
+    if (contract) {
+      loadContractInfo()
     }
-  }
+  }, [contract])
 
-  const handlePause = async () => {
+  const loadContractInfo = async () => {
     if (!contract) return
 
     try {
       setLoading(true)
-      toast.loading('Pausing contract...')
-      const tx = await contract.pause()
-      await tx.wait()
-      toast.dismiss()
-      toast.success('Contract paused successfully')
-      checkPauseStatus()
+      const companyWallet = await contract.companyWallet()
+      const entryPrice = await contract.entryPrice()
+      const retopupPrice = await contract.retopupPrice()
+      const directIncome = await contract.directIncome()
+      const companyFee = await contract.companyFee()
+      const lastUserId = await contract.lastUserId()
+      const usdtToken = await contract.usdtToken()
+
+      setContractInfo({
+        companyWallet,
+        entryPrice,
+        retopupPrice,
+        directIncome,
+        companyFee,
+        lastUserId,
+        usdtToken,
+      })
       setLoading(false)
     } catch (error: any) {
-      console.error('Pause error:', error)
-      toast.dismiss()
-      toast.error(error.reason || error.message || 'Failed to pause')
+      console.error('Error loading contract info:', error)
+      toast.error('Failed to load contract information')
       setLoading(false)
     }
   }
 
-  const handleUnpause = async () => {
-    if (!contract) return
-
-    try {
-      setLoading(true)
-      toast.loading('Unpausing contract...')
-      const tx = await contract.unpause()
-      await tx.wait()
-      toast.dismiss()
-      toast.success('Contract unpaused successfully')
-      checkPauseStatus()
-      setLoading(false)
-    } catch (error: any) {
-      console.error('Unpause error:', error)
-      toast.dismiss()
-      toast.error(error.reason || error.message || 'Failed to unpause')
-      setLoading(false)
-    }
-  }
-
-  const handleUpdateCompanyWallet = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!contract || !newCompanyWallet) return
-
-    try {
-      setLoading(true)
-      toast.loading('Updating company wallet...')
-      const tx = await contract.setCompanyWallet(newCompanyWallet)
-      await tx.wait()
-      toast.dismiss()
-      toast.success('Company wallet updated successfully')
-      setNewCompanyWallet('')
-      setLoading(false)
-    } catch (error: any) {
-      console.error('Update error:', error)
-      toast.dismiss()
-      toast.error(error.reason || error.message || 'Failed to update')
-      setLoading(false)
-    }
-  }
-
-  const handleEmergencyWithdraw = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!contract || !withdrawAddress || !withdrawAmount) return
-
-    try {
-      setLoading(true)
-      const amount = ethers.parseUnits(withdrawAmount, 18)
-      toast.loading('Processing withdrawal...')
-      const tx = await contract.emergencyWithdraw(withdrawAddress, amount)
-      await tx.wait()
-      toast.dismiss()
-      toast.success('Emergency withdrawal successful')
-      setWithdrawAddress('')
-      setWithdrawAmount('')
-      setLoading(false)
-    } catch (error: any) {
-      console.error('Withdrawal error:', error)
-      toast.dismiss()
-      toast.error(error.reason || error.message || 'Failed to withdraw')
-      setLoading(false)
-    }
+  if (loading && !contractInfo) {
+    return (
+      <div className="flex justify-center items-center py-20">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    )
   }
 
   return (
@@ -115,129 +63,64 @@ export default function AdminPanel() {
           <FaShieldAlt className="text-4xl mr-4" />
           <div>
             <h2 className="text-2xl font-bold">Admin Panel</h2>
-            <p className="text-red-100">Manage contract settings and emergency functions</p>
+            <p className="text-red-100">View contract information and settings</p>
           </div>
         </div>
       </div>
 
-      {/* Pause/Unpause */}
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h3 className="text-xl font-bold mb-4 flex items-center">
-          <FaPause className="mr-2" /> Emergency Pause Control
-        </h3>
-        <p className="text-gray-600 mb-4">
-          Pause or unpause all contract operations in case of emergency.
-        </p>
-        <div className="flex space-x-4">
-          <button
-            onClick={handlePause}
-            disabled={loading || isPaused}
-            className="bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg transition-all flex items-center"
-          >
-            <FaPause className="mr-2" />
-            Pause Contract
-          </button>
-          <button
-            onClick={handleUnpause}
-            disabled={loading || !isPaused}
-            className="bg-green-500 hover:bg-green-600 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg transition-all flex items-center"
-          >
-            <FaPlay className="mr-2" />
-            Unpause Contract
-          </button>
-        </div>
-        {isPaused && (
-          <div className="mt-4 bg-red-50 border border-red-200 text-red-800 px-4 py-2 rounded">
-            ⚠️ Contract is currently paused
-          </div>
-        )}
-      </div>
-
-      {/* Update Company Wallet */}
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h3 className="text-xl font-bold mb-4 flex items-center">
-          <FaCog className="mr-2" /> Update Company Wallet
-        </h3>
-        <form onSubmit={handleUpdateCompanyWallet} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              New Company Wallet Address
-            </label>
-            <input
-              type="text"
-              value={newCompanyWallet}
-              onChange={(e) => setNewCompanyWallet(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-              placeholder="0x..."
-              required
-            />
+      {/* Contract Information */}
+      {contractInfo && (
+        <div className="bg-white rounded-lg shadow-lg p-6">
+          <h3 className="text-xl font-bold mb-4 flex items-center">
+            <FaInfoCircle className="mr-2" /> Contract Information
+          </h3>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <p className="text-gray-600 text-sm">Company Wallet</p>
+              <p className="font-mono text-sm break-all">{contractInfo.companyWallet}</p>
+            </div>
+            <div>
+              <p className="text-gray-600 text-sm">USDT Token Address</p>
+              <p className="font-mono text-sm break-all">{contractInfo.usdtToken}</p>
+            </div>
+            <div>
+              <p className="text-gray-600 text-sm">Last User ID</p>
+              <p className="font-semibold">{contractInfo.lastUserId.toString()}</p>
+            </div>
+            <div>
+              <p className="text-gray-600 text-sm">Entry Price</p>
+              <p className="font-semibold">{ethers.formatUnits(contractInfo.entryPrice, 18)} tokens</p>
+            </div>
+            <div>
+              <p className="text-gray-600 text-sm">Retopup Price</p>
+              <p className="font-semibold">{ethers.formatUnits(contractInfo.retopupPrice, 18)} tokens</p>
+            </div>
+            <div>
+              <p className="text-gray-600 text-sm">Direct Income</p>
+              <p className="font-semibold">{ethers.formatUnits(contractInfo.directIncome, 18)} tokens</p>
+            </div>
+            <div>
+              <p className="text-gray-600 text-sm">Company Fee</p>
+              <p className="font-semibold">{ethers.formatUnits(contractInfo.companyFee, 18)} tokens</p>
+            </div>
           </div>
           <button
-            type="submit"
+            onClick={loadContractInfo}
             disabled={loading}
-            className="bg-primary hover:bg-primary/90 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg transition-all"
+            className="mt-4 bg-primary hover:bg-primary/90 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg transition-all"
           >
-            Update Company Wallet
+            {loading ? 'Loading...' : 'Refresh Information'}
           </button>
-        </form>
-      </div>
-
-      {/* Emergency Withdraw */}
-      <div className="bg-white rounded-lg shadow-lg p-6 border-2 border-red-200">
-        <h3 className="text-xl font-bold mb-4 flex items-center text-red-600">
-          <FaCoins className="mr-2" /> Emergency Withdrawal
-        </h3>
-        <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-2 rounded mb-4">
-          ⚠️ Warning: This function should only be used in emergencies. Use with caution!
         </div>
-        <form onSubmit={handleEmergencyWithdraw} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Withdrawal Address
-            </label>
-            <input
-              type="text"
-              value={withdrawAddress}
-              onChange={(e) => setWithdrawAddress(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-              placeholder="0x..."
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Amount (in tokens)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={withdrawAmount}
-              onChange={(e) => setWithdrawAmount(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-              placeholder="100.00"
-              required
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg transition-all"
-          >
-            Emergency Withdraw
-          </button>
-        </form>
-      </div>
+      )}
 
-      {/* Instructions */}
+      {/* Note */}
       <div className="bg-yellow-50 border-l-4 border-warning p-6 rounded-lg">
-        <h3 className="font-semibold text-yellow-900 mb-2">Admin Guidelines:</h3>
-        <ul className="text-sm text-yellow-800 space-y-1">
-          <li>• Use pause function only in case of discovered vulnerabilities</li>
-          <li>• Update company wallet through multisig consensus</li>
-          <li>• Emergency withdraw should be a last resort</li>
-          <li>• Always verify addresses before executing transactions</li>
-          <li>• Keep transaction records for audit purposes</li>
-        </ul>
+        <h3 className="font-semibold text-yellow-900 mb-2">Note:</h3>
+        <p className="text-sm text-yellow-800">
+          This contract does not include admin functions like pause/unpause or emergency withdrawal in the current ABI.
+          All contract parameters are immutable and set during deployment.
+        </p>
       </div>
     </div>
   )

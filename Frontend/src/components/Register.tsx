@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useWeb3 } from '@/contexts/Web3Context'
 import { ethers } from 'ethers'
 import toast from 'react-hot-toast'
@@ -8,9 +8,26 @@ import { FaUserPlus, FaSpinner } from 'react-icons/fa'
 
 export default function Register() {
   const { account, contract, tokenContract } = useWeb3()
-  const [referrerId, setReferrerId] = useState('1')
+  const [referrerAddress, setReferrerAddress] = useState('')
   const [loading, setLoading] = useState(false)
   const [approving, setApproving] = useState(false)
+  const [companyWallet, setCompanyWallet] = useState<string | null>(null)
+
+  // Load company wallet address on mount
+  useEffect(() => {
+    const loadCompanyWallet = async () => {
+      if (contract) {
+        try {
+          const wallet = await contract.companyWallet()
+          setCompanyWallet(wallet)
+          setReferrerAddress(wallet) // Set as default
+        } catch (error) {
+          console.error('Failed to load company wallet:', error)
+        }
+      }
+    }
+    loadCompanyWallet()
+  }, [contract])
 
   const handleApprove = async () => {
     if (!tokenContract || !contract) {
@@ -20,10 +37,10 @@ export default function Register() {
 
     try {
       setApproving(true)
-      const packageAmount = await contract.packageAmount()
+      const entryPrice = await contract.entryPrice()
       
       toast.loading('Approving tokens...')
-      const tx = await tokenContract.approve(await contract.getAddress(), packageAmount)
+      const tx = await tokenContract.approve(await contract.getAddress(), entryPrice)
       await tx.wait()
       
       toast.dismiss()
@@ -40,13 +57,24 @@ export default function Register() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!contract || !tokenContract) {
+    if (!contract || !tokenContract || !account) {
       toast.error('Contract not initialized')
       return
     }
 
-    if (!referrerId || referrerId === '0') {
-      toast.error('Please enter a valid referrer ID')
+    if (!referrerAddress) {
+      toast.error('Please enter a valid referrer address')
+      return
+    }
+
+    // Validate Ethereum address format
+    if (!ethers.isAddress(referrerAddress)) {
+      toast.error('Invalid referrer address format')
+      return
+    }
+
+    if (referrerAddress.toLowerCase() === account.toLowerCase()) {
+      toast.error('Cannot refer yourself')
       return
     }
 
@@ -54,18 +82,26 @@ export default function Register() {
       setLoading(true)
 
       // Check if already registered
-      const userId = await contract.getUserId(account)
-      if (userId.toString() !== '0') {
+      const userInfo = await contract.getUserInfo(account)
+      if (userInfo.isActive) {
         toast.error('You are already registered!')
         setLoading(false)
         return
       }
 
+      // Check if referrer is active
+      const referrerInfo = await contract.getUserInfo(referrerAddress)
+      if (!referrerInfo.isActive) {
+        toast.error('Referrer is not registered or inactive')
+        setLoading(false)
+        return
+      }
+
       // Check allowance
-      const packageAmount = await contract.packageAmount()
+      const entryPrice = await contract.entryPrice()
       const allowance = await tokenContract.allowance(account, await contract.getAddress())
       
-      if (allowance < packageAmount) {
+      if (allowance < entryPrice) {
         toast.error('Please approve tokens first')
         setLoading(false)
         return
@@ -73,7 +109,7 @@ export default function Register() {
 
       // Register
       toast.loading('Registering...')
-      const tx = await contract.register(referrerId)
+      const tx = await contract.register(referrerAddress)
       await tx.wait()
       
       toast.dismiss()
@@ -108,26 +144,25 @@ export default function Register() {
             <li>• Your referrer will receive $18</li>
             <li>• Company fee: $2</li>
             <li>• You need to approve tokens before registering</li>
-            <li>• Use referrer ID 1 for company (root)</li>
+              <li>• Default referrer is company wallet (can be changed)</li>
           </ul>
         </div>
 
         <form onSubmit={handleRegister} className="space-y-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Referrer ID
+              Referrer Address
             </label>
             <input
-              type="number"
-              value={referrerId}
-              onChange={(e) => setReferrerId(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-              placeholder="Enter referrer ID (1 for company)"
+              type="text"
+              value={referrerAddress}
+              onChange={(e) => setReferrerAddress(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent font-mono text-sm"
+              placeholder="0x..."
               required
-              min="1"
             />
             <p className="text-xs text-gray-500 mt-1">
-              Enter the ID of the person who referred you. Use 1 for direct company registration.
+              Enter the Ethereum address of the person who referred you. Default is company wallet.
             </p>
           </div>
 

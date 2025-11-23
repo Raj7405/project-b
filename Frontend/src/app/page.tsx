@@ -8,10 +8,24 @@ import Register from '@/components/Register'
 import ReTopup from '@/components/ReTopup'
 import AdminPanel from '@/components/AdminPanel'
 import { useWeb3 } from '@/contexts/Web3Context'
+import toast from 'react-hot-toast'
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('dashboard')
-  const { account, isOwner } = useWeb3()
+  const { account, isOwner, contract } = useWeb3()
+
+  // this for testing purpose, Remove when flow completed
+  const getReferrals = async () => {
+    if (!contract || !account) {
+      toast.error('Contract not initialized')
+      return
+    }
+    console.log("account",account)
+    const referrals = await contract.getUserReferrals(account, 10)
+    const poolNode = await contract.getPoolNode(account, 10)
+    console.log("getUserReferrals",referrals)
+    console.log("getPoolNode",poolNode)
+  }
 
   return (
     <div className="min-h-screen">      
@@ -106,6 +120,9 @@ export default function Home() {
                   </button>
                 )}
               </div>
+
+              {/* this for testing purpose, Remove when flow completed */}
+              <button className='bg-blue-gradient-primary text-white px-6 py-3 rounded-lg transition-all flex gap-2 items-center justify-center my-5' onClick={getReferrals}>Get Referrals</button>
 
               {/* Content */}
               {activeTab === 'dashboard' && <Dashboard />}

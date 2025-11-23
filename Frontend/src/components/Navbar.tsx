@@ -2,12 +2,13 @@
 
 import { useState } from 'react'
 import { useWeb3 } from '@/contexts/Web3Context'
-import { FaWallet, FaSignOutAlt, FaBars, FaTimes } from 'react-icons/fa'
+import { FaWallet, FaSignOutAlt, FaBars, FaTimes, FaSpinner } from 'react-icons/fa'
 import Link from 'next/link'
 
 export default function Navbar() {
   const { account, connectWallet, disconnectWallet, chainId } = useWeb3()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [isConnecting, setIsConnecting] = useState(false)
 
   const formatAddress = (addr: string) => {
     return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`
@@ -29,6 +30,13 @@ export default function Navbar() {
     { name: 'Instructions', href: '#instructions' },
   ]
 
+  const handleConnectWallet = async () => {
+    setIsConnecting(true)
+    await connectWallet()
+    console.log('account:', account)
+    setIsConnecting(false)
+  }
+
   return (
     <nav className={`glass-effect sticky w-full top-0 z-50 shadow-lg ${isMobileMenuOpen && 'h-screen'}`}>
       <div className="container mx-auto px-4 py-7">
@@ -43,13 +51,13 @@ export default function Navbar() {
           {/* Desktop Menu Items */}
           <div className="hidden md:flex items-center space-x-8">
             {menuItems.map((item) => (
-              <a
+              <Link
                 key={item.name}
                 href={item.href}
                 className="text-white hover:text-blue-400 transition-colors font-medium"
               >
                 {item.name}
-              </a>
+              </Link>
             ))}
           </div>
 
@@ -64,10 +72,12 @@ export default function Navbar() {
             {!account ? (
               <button
                 onClick={connectWallet}
-                className="flex items-center space-x-2 bg-blue-gradient-primary hover:bg-white text-white px-6 py-5 rounded-lg transition-all"
+                className="flex items-center space-x-2 bg-blue-gradient-primary hover:bg-white text-white px-6 py-5 rounded-lg transition-all cursor-pointer"
+                disabled={isConnecting}
               >
                 <FaWallet />
                 <span>Connect Wallet</span>
+                {isConnecting && <FaSpinner className="animate-spin" />}
               </button>
             ) : (
               <div className="flex items-center space-x-3">

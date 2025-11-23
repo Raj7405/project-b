@@ -2,6 +2,8 @@
  * Helper functions to convert blockchain data to Binary Tree structure
  */
 
+import { ethers } from 'ethers'
+
 export interface TreeNode {
   id: string
   name: string
@@ -58,11 +60,19 @@ async function buildTreeRecursive(
       }
     }
 
-    // Get user info from contract
-    const userInfo = await contract.userInfo(userId)
-    const [wallet, parentId, sponsorCount, exists, hasReTopup] = userInfo
-
-    if (!exists) {
+    // Convert userId to address using idToAddress mapping
+    let userAddress: string
+    try {
+      userAddress = await contract.idToAddress(userId)
+      if (!userAddress || userAddress === ethers.ZeroAddress) {
+        return {
+          id: `empty-${Math.random()}`,
+          name: 'Empty',
+          isEmpty: true,
+        }
+      }
+    } catch (error) {
+      // User ID doesn't exist
       return {
         id: `empty-${Math.random()}`,
         name: 'Empty',
@@ -70,51 +80,92 @@ async function buildTreeRecursive(
       }
     }
 
-    // Get user's children from the binary tree
-    // Note: You'll need to add functions to your contract to get left and right children
-    // For now, we'll use placeholder logic
-    let leftChildId = '0'
-    let rightChildId = '0'
-
-    // Try to get children if your contract has these functions
+    // Get user info from contract using address
+    let userInfo
     try {
-      // Uncomment these when you add them to your contract
-      // leftChildId = await contract.getLeftChild(userId)
-      // rightChildId = await contract.getRightChild(userId)
+      userInfo = await contract.getUserInfo(userAddress)
+    } catch (error) {
+      // User doesn't exist or is not active
+      return {
+        id: `empty-${Math.random()}`,
+        name: 'Empty',
+        isEmpty: true,
+      }
+    }
+
+    if (!userInfo.isActive) {
+      return {
+        id: `empty-${Math.random()}`,
+        name: 'Empty',
+        isEmpty: true,
+      }
+    }
+
+    // Get user's pool node information for level 1
+    // Note: The contract uses pool levels, not direct left/right children
+    // We'll use pool node structure to build the tree
+    let leftChildAddress: string | null = null
+    let rightChildAddress: string | null = null
+
+    try {
+      const poolNode = await contract.getPoolNode(userAddress, 1) // Level 1 pool
+      if (poolNode.left && poolNode.left !== ethers.ZeroAddress) {
+        leftChildAddress = poolNode.left
+      }
+      if (poolNode.right && poolNode.right !== ethers.ZeroAddress) {
+        rightChildAddress = poolNode.right
+      }
     } catch (e) {
-      // Children getters not implemented in contract
+      // Pool node not found or error - continue with empty children
+    }
+
+    // Get left and right child user IDs if addresses exist
+    let leftChildId: string | null = null
+    let rightChildId: string | null = null
+
+    // Try to find user IDs for left and right children by checking referrals
+    // Note: This is a simplified approach - you may need to adjust based on your contract structure
+    try {
+      if (leftChildAddress) {
+        const leftChildInfo = await contract.getUserInfo(leftChildAddress)
+        leftChildId = leftChildInfo.id.toString()
+      }
+      if (rightChildAddress) {
+        const rightChildInfo = await contract.getUserInfo(rightChildAddress)
+        rightChildId = rightChildInfo.id.toString()
+      }
+    } catch (e) {
+      // Could not get child info
     }
 
     // Recursively build left and right subtrees
-    const leftChild =
-      leftChildId !== '0'
-        ? await buildTreeRecursive(contract, leftChildId, currentDepth + 1, maxDepth)
-        : {
-            id: `empty-left-${userId}`,
-            name: 'Empty',
-            isEmpty: true,
-          }
+    const leftChild = leftChildId
+      ? await buildTreeRecursive(contract, leftChildId, currentDepth + 1, maxDepth)
+      : {
+          id: `empty-left-${userId}`,
+          name: 'Empty',
+          isEmpty: true,
+        }
 
-    const rightChild =
-      rightChildId !== '0'
-        ? await buildTreeRecursive(contract, rightChildId, currentDepth + 1, maxDepth)
-        : {
-            id: `empty-right-${userId}`,
-            name: 'Empty',
-            isEmpty: true,
-          }
+    const rightChild = rightChildId
+      ? await buildTreeRecursive(contract, rightChildId, currentDepth + 1, maxDepth)
+      : {
+          id: `empty-right-${userId}`,
+          name: 'Empty',
+          isEmpty: true,
+        }
 
     // Format wallet address
-    const shortWallet = `${wallet.substring(0, 6)}...${wallet.substring(wallet.length - 4)}`
+    const shortWallet = `${userAddress.substring(0, 6)}...${userAddress.substring(userAddress.length - 4)}`
 
     // Create tree node
     const node: TreeNode = {
       id: userId,
       name: isRoot ? 'You' : `Member ${userId}`,
       isRoot,
-      isActive: hasReTopup,
-      status: hasReTopup ? 'active' : 'pending',
-      earnings: calculateEarnings(Number(sponsorCount), hasReTopup),
+      isActive: userInfo.retopupCount > 0,
+      status: userInfo.retopupCount > 0 ? 'active' : 'pending',
+      earnings: calculateEarnings(Number(userInfo.referralCount), userInfo.retopupCount > 0),
       left: leftChild,
       right: rightChild,
     }

@@ -4,6 +4,8 @@ import "./globals.css";
 import { Web3Provider } from "@/contexts/Web3Context";
 import { Toaster } from "react-hot-toast";
 import Navbar from "@/components/Navbar";
+import dynamic from "next/dynamic"; 
+const NavigationProgressBar = dynamic(() => import("@/components/NavigationProgressBar"), { ssr: false });
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -20,6 +22,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
+      <NavigationProgressBar />
         <Web3Provider>
           <Navbar />
           {children}

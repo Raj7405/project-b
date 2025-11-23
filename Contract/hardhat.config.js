@@ -14,7 +14,7 @@ module.exports = {
   },
   networks: {
     hardhat: {
-      chainId: 1337
+      chainId: 1337  // Standard Hardhat chain ID (change to 31337 if you prefer)
     },
     localhost: {
       url: "http://127.0.0.1:8545"

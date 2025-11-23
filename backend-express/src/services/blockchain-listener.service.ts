@@ -63,10 +63,9 @@ const processEvents = async () => {
     await processUserRegisteredEvents(contract, lastProcessedBlock, currentBlockBigInt);
     await processDirectIncomeEvents(contract, lastProcessedBlock, currentBlockBigInt);
     await processLevelIncomeEvents(contract, lastProcessedBlock, currentBlockBigInt);
-    await processAutoPoolIncomeEvents(contract, lastProcessedBlock, currentBlockBigInt);
-    await processReTopupEvents(contract, lastProcessedBlock, currentBlockBigInt);
-    await processAutoPoolEnqueuedEvents(contract, lastProcessedBlock, currentBlockBigInt);
-    await processSkippedIncomeEvents(contract, lastProcessedBlock, currentBlockBigInt);
+    await processPoolIncomeEvents(contract, lastProcessedBlock, currentBlockBigInt);
+    await processRetopupEvents(contract, lastProcessedBlock, currentBlockBigInt);
+    await processPoolPlacementEvents(contract, lastProcessedBlock, currentBlockBigInt);
 
     // Update last processed block
     lastProcessedBlock = currentBlockBigInt;
@@ -91,29 +90,39 @@ const processUserRegisteredEvents = async (
   for (const event of events) {
     try {
       if (!(event instanceof EventLog)) continue;
-      const [id, wallet, parentId, wentToAutoPool] = event.args as any;
-      const userId = BigInt(id.toString());
-      const parentIdBigInt = BigInt(parentId.toString());
+      const [user, referrer, userId] = event.args as any;
+      const userIdBigInt = BigInt(userId.toString());
+      
+      // Get referrer's user ID if referrer is not zero address
+      let parentIdBigInt: bigint | null = null;
+      if (referrer && referrer !== ethers.ZeroAddress) {
+        try {
+          const referrerInfo = await contract.getUserInfo(referrer);
+          parentIdBigInt = BigInt(referrerInfo.id.toString());
+        } catch (e) {
+          // Referrer not found, continue
+        }
+      }
 
       // Create or update user
       await prisma.user.upsert({
-        where: { id: userId },
+        where: { id: userIdBigInt },
         create: {
-          id: userId,
-          walletAddress: wallet.toLowerCase(),
-          parentId: parentIdBigInt > 0n ? parentIdBigInt : null,
+          id: userIdBigInt,
+          walletAddress: user.toLowerCase(),
+          parentId: parentIdBigInt,
           sponsorCount: 0,
           hasReTopup: false,
-          hasAutoPoolEntry: wentToAutoPool
+          hasAutoPoolEntry: false // Will be updated by PoolPlacement event
         },
         update: {
-          walletAddress: wallet.toLowerCase(),
-          parentId: parentIdBigInt > 0n ? parentIdBigInt : null
+          walletAddress: user.toLowerCase(),
+          parentId: parentIdBigInt
         }
       });
 
       // Increment parent's sponsor count
-      if (parentIdBigInt > 0n) {
+      if (parentIdBigInt) {
         await prisma.user.update({
           where: { id: parentIdBigInt },
           data: {
@@ -128,8 +137,8 @@ const processUserRegisteredEvents = async (
       await prisma.transaction.create({
         data: {
           txHash: event.transactionHash,
-          userId,
-          walletAddress: wallet.toLowerCase(),
+          userId: userIdBigInt,
+          walletAddress: user.toLowerCase(),
           type: TransactionType.REGISTRATION,
           amount: 20,
           blockNumber: BigInt(event.blockNumber),
@@ -137,7 +146,7 @@ const processUserRegisteredEvents = async (
         }
       });
 
-      console.log(`✅ UserRegistered: ID=${userId}, Wallet=${wallet}`);
+      console.log(`✅ UserRegistered: ID=${userIdBigInt}, Wallet=${user}`);
     } catch (error) {
       console.error('Error processing UserRegistered event:', error);
     }
@@ -149,14 +158,23 @@ const processDirectIncomeEvents = async (
   fromBlock: bigint,
   toBlock: bigint
 ) => {
-  const filter = contract.filters.DirectIncomePaid();
+  const filter = contract.filters.DirectIncomeEarned();
   const events = await contract.queryFilter(filter, fromBlock, toBlock);
 
   for (const event of events) {
     try {
       if (!(event instanceof EventLog)) continue;
-      const [toId, to, amount] = event.args as any;
-      const userId = BigInt(toId.toString());
+      const [user, from, amount] = event.args as any;
+      
+      // Get user ID from address
+      let userId: bigint;
+      try {
+        const userInfo = await contract.getUserInfo(user);
+        userId = BigInt(userInfo.id.toString());
+      } catch (e) {
+        console.error('Could not get user info for direct income:', user);
+        continue;
+      }
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
       // Update user's total direct income
@@ -174,7 +192,7 @@ const processDirectIncomeEvents = async (
         data: {
           txHash: event.transactionHash,
           userId,
-          walletAddress: to.toLowerCase(),
+          walletAddress: user.toLowerCase(),
           type: TransactionType.DIRECT_INCOME,
           amount: amountInTokens,
           blockNumber: BigInt(event.blockNumber),
@@ -182,7 +200,7 @@ const processDirectIncomeEvents = async (
         }
       });
 
-      console.log(`✅ DirectIncomePaid: ID=${userId}, Amount=${amountInTokens}`);
+      console.log(`✅ DirectIncomeEarned: ID=${userId}, Amount=${amountInTokens}`);
     } catch (error) {
       console.error('Error processing DirectIncomePaid event:', error);
     }
@@ -194,14 +212,23 @@ const processLevelIncomeEvents = async (
   fromBlock: bigint,
   toBlock: bigint
 ) => {
-  const filter = contract.filters.LevelIncomePaid();
+  const filter = contract.filters.LevelIncomeEarned();
   const events = await contract.queryFilter(filter, fromBlock, toBlock);
 
   for (const event of events) {
     try {
       if (!(event instanceof EventLog)) continue;
-      const [toId, to, amount, level] = event.args as any;
-      const userId = BigInt(toId.toString());
+      const [user, from, level, amount] = event.args as any;
+      
+      // Get user ID from address
+      let userId: bigint;
+      try {
+        const userInfo = await contract.getUserInfo(user);
+        userId = BigInt(userInfo.id.toString());
+      } catch (e) {
+        console.error('Could not get user info for level income:', user);
+        continue;
+      }
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
       // Update user's total level income
@@ -219,7 +246,7 @@ const processLevelIncomeEvents = async (
         data: {
           txHash: event.transactionHash,
           userId,
-          walletAddress: to.toLowerCase(),
+          walletAddress: user.toLowerCase(),
           type: TransactionType.LEVEL_INCOME,
           amount: amountInTokens,
           blockNumber: BigInt(event.blockNumber),
@@ -227,26 +254,35 @@ const processLevelIncomeEvents = async (
         }
       });
 
-      console.log(`✅ LevelIncomePaid: ID=${userId}, Level=${level}, Amount=${amountInTokens}`);
+      console.log(`✅ LevelIncomeEarned: ID=${userId}, Level=${level}, Amount=${amountInTokens}`);
     } catch (error) {
       console.error('Error processing LevelIncomePaid event:', error);
     }
   }
 };
 
-const processAutoPoolIncomeEvents = async (
+const processPoolIncomeEvents = async (
   contract: ethers.Contract,
   fromBlock: bigint,
   toBlock: bigint
 ) => {
-  const filter = contract.filters.AutoPoolIncomePaid();
+  const filter = contract.filters.PoolIncomeEarned();
   const events = await contract.queryFilter(filter, fromBlock, toBlock);
 
   for (const event of events) {
     try {
       if (!(event instanceof EventLog)) continue;
-      const [toId, to, amount] = event.args as any;
-      const userId = BigInt(toId.toString());
+      const [user, poolLevel, amount] = event.args as any;
+      
+      // Get user ID from address
+      let userId: bigint;
+      try {
+        const userInfo = await contract.getUserInfo(user);
+        userId = BigInt(userInfo.id.toString());
+      } catch (e) {
+        console.error('Could not get user info for pool income:', user);
+        continue;
+      }
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
       // Update user's total auto pool income
@@ -264,34 +300,43 @@ const processAutoPoolIncomeEvents = async (
         data: {
           txHash: event.transactionHash,
           userId,
-          walletAddress: to.toLowerCase(),
+          walletAddress: user.toLowerCase(),
           type: TransactionType.AUTO_POOL_INCOME,
           amount: amountInTokens,
           blockNumber: BigInt(event.blockNumber),
-          description: 'Auto pool income'
+          description: `Pool level ${poolLevel} income`
         }
       });
 
-      console.log(`✅ AutoPoolIncomePaid: ID=${userId}, Amount=${amountInTokens}`);
+      console.log(`✅ PoolIncomeEarned: ID=${userId}, PoolLevel=${poolLevel}, Amount=${amountInTokens}`);
     } catch (error) {
       console.error('Error processing AutoPoolIncomePaid event:', error);
     }
   }
 };
 
-const processReTopupEvents = async (
+const processRetopupEvents = async (
   contract: ethers.Contract,
   fromBlock: bigint,
   toBlock: bigint
 ) => {
-  const filter = contract.filters.ReTopupProcessed();
+  const filter = contract.filters.RetopupCompleted();
   const events = await contract.queryFilter(filter, fromBlock, toBlock);
 
   for (const event of events) {
     try {
       if (!(event instanceof EventLog)) continue;
-      const [id, wallet, amount] = event.args as any;
-      const userId = BigInt(id.toString());
+      const [user, amount] = event.args as any;
+      
+      // Get user ID from address
+      let userId: bigint;
+      try {
+        const userInfo = await contract.getUserInfo(user);
+        userId = BigInt(userInfo.id.toString());
+      } catch (e) {
+        console.error('Could not get user info for retopup:', user);
+        continue;
+      }
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
       // Mark user as having done re-topup
@@ -307,7 +352,7 @@ const processReTopupEvents = async (
         data: {
           txHash: event.transactionHash,
           userId,
-          walletAddress: wallet.toLowerCase(),
+          walletAddress: user.toLowerCase(),
           type: TransactionType.RETOPUP,
           amount: amountInTokens,
           blockNumber: BigInt(event.blockNumber),
@@ -315,26 +360,35 @@ const processReTopupEvents = async (
         }
       });
 
-      console.log(`✅ ReTopupProcessed: ID=${userId}, Amount=${amountInTokens}`);
+      console.log(`✅ RetopupCompleted: ID=${userId}, Amount=${amountInTokens}`);
     } catch (error) {
       console.error('Error processing ReTopupProcessed event:', error);
     }
   }
 };
 
-const processAutoPoolEnqueuedEvents = async (
+const processPoolPlacementEvents = async (
   contract: ethers.Contract,
   fromBlock: bigint,
   toBlock: bigint
 ) => {
-  const filter = contract.filters.AutoPoolEnqueued();
+  const filter = contract.filters.PoolPlacement();
   const events = await contract.queryFilter(filter, fromBlock, toBlock);
 
   for (const event of events) {
     try {
       if (!(event instanceof EventLog)) continue;
-      const [id, wallet] = event.args as any;
-      const userId = BigInt(id.toString());
+      const [user, poolLevel, parent] = event.args as any;
+      
+      // Get user ID from address
+      let userId: bigint;
+      try {
+        const userInfo = await contract.getUserInfo(user);
+        userId = BigInt(userInfo.id.toString());
+      } catch (e) {
+        console.error('Could not get user info for pool placement:', user);
+        continue;
+      }
 
       // Mark user as having entered auto pool
       await prisma.user.update({
@@ -344,44 +398,9 @@ const processAutoPoolEnqueuedEvents = async (
         }
       });
 
-      console.log(`✅ AutoPoolEnqueued: ID=${userId}`);
+      console.log(`✅ PoolPlacement: ID=${userId}, PoolLevel=${poolLevel}`);
     } catch (error) {
-      console.error('Error processing AutoPoolEnqueued event:', error);
-    }
-  }
-};
-
-const processSkippedIncomeEvents = async (
-  contract: ethers.Contract,
-  fromBlock: bigint,
-  toBlock: bigint
-) => {
-  const filter = contract.filters.ReTopupSkippedToCompany();
-  const events = await contract.queryFilter(filter, fromBlock, toBlock);
-
-  for (const event of events) {
-    try {
-      if (!(event instanceof EventLog)) continue;
-      const [skippedId, skippedWallet, amount, level] = event.args as any;
-      const userId = BigInt(skippedId.toString());
-      const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
-
-      // Record skipped transaction
-      await prisma.transaction.create({
-        data: {
-          txHash: event.transactionHash,
-          userId,
-          walletAddress: skippedWallet.toLowerCase(),
-          type: TransactionType.RETOPUP_SKIPPED,
-          amount: amountInTokens,
-          blockNumber: BigInt(event.blockNumber),
-          description: `Level ${level} income skipped (no re-topup)`
-        }
-      });
-
-      console.log(`✅ ReTopupSkippedToCompany: ID=${userId}, Level=${level}`);
-    } catch (error) {
-      console.error('Error processing ReTopupSkippedToCompany event:', error);
+      console.error('Error processing PoolPlacement event:', error);
     }
   }
 };
