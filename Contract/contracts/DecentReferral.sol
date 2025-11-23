@@ -142,6 +142,8 @@ contract MLMSystem is ReentrancyGuard {
         address left;
         // Address of the right child in the binary tree (if any)
         address right;
+        // Address of the parent node in the binary tree
+        address parent;
         // The level within the auto pool hierarchy this node belongs to
         uint256 poolLevel; // 1, 2, 3...
         // Indicates whether the left child slot has been filled
@@ -373,10 +375,6 @@ contract MLMSystem is ReentrancyGuard {
 
         // Calculates the monetary value required for this pool level based on entry price doubling
         uint256 poolValue = entryPrice << (_poolLevel - 1);
-        // Determines the portion of the pool value that will be paid out to the parent user
-        uint256 distribution = poolValue * 90 / 100; // 90% distributed
-        // Determines the portion retained by the company as fees at this level
-        uint256 fee = poolValue - distribution; // 10% company fee
         
         // Place user under parent
         // Checks and assigns the left child slot if it is not yet occupied
@@ -397,13 +395,18 @@ contract MLMSystem is ReentrancyGuard {
         userPools[_user][_poolLevel].user = _user;
         // Records the level for the child's node
         userPools[_user][_poolLevel].poolLevel = _poolLevel;
+        // Store parent reference for distribution
+        userPools[_user][_poolLevel].parent = parent;
         // Adds the child to the placement queue for future descendants
         poolQueue[_poolLevel].push(_user);
         
         // Emits a placement event indicating which parent the user was attached to
         emit PoolPlacement(_user, _poolLevel, parent);
         
-        // Check if parent's binary is complete
+        // Distribute income immediately up 3 levels (layered distribution)
+        _distributePoolIncomeLayered(_user, _poolLevel, poolValue);
+        
+        // Check if parent's binary is complete (for tracking purposes only)
         // Determines if both child slots have been filled for the parent node
         if (userPools[parent][_poolLevel].leftFilled && 
             userPools[parent][_poolLevel].rightFilled) {
@@ -422,14 +425,11 @@ contract MLMSystem is ReentrancyGuard {
             
             // Check if this tree is now complete (15 nodes)
             bool isTreeComplete = completedNodesCount[_poolLevel] >= COMPLETE_POOL_SIZE;
-            bool isLastFour = false;
-            bool treeJustCompleted = false;
             
             // Check if current parent is in last 4 (either from previous completion or current)
             if (isTreeComplete) {
                 // Identify last 4 nodes when tree completes (first time - exactly 15 nodes)
                 if (completedNodesCount[_poolLevel] == COMPLETE_POOL_SIZE) {
-                    treeJustCompleted = true;
                     uint256 queueLength = completedNodesQueue[_poolLevel].length;
                     if (queueLength >= LAST_NODES_COUNT) {
                         // Get the last 4 nodes from the completed queue
@@ -455,8 +455,12 @@ contract MLMSystem is ReentrancyGuard {
                         }
                     }
                 }
-                
-                // Check if current parent is in last 4 (from previously identified last 4)
+            }
+            
+            // Auto-progress parent to next pool level (if not in last 4 and tree not complete)
+            if (!isTreeComplete) {
+                // Check if parent is in last 4
+                bool isLastFour = false;
                 address[4] memory storedLastFour = lastFourNodes[_poolLevel];
                 for (uint256 i = 0; i < LAST_NODES_COUNT; i++) {
                     if (storedLastFour[i] == parent && storedLastFour[i] != address(0)) {
@@ -464,31 +468,115 @@ contract MLMSystem is ReentrancyGuard {
                         break;
                     }
                 }
-            }
-            
-            // Handle income distribution based on last 4 rule
-            if (isTreeComplete && isLastFour) {
-                // Reserve income for last 4 nodes (for next tree formation)
-                reservedIncome[parent][_poolLevel] += distribution;
-                emit IncomeReserved(parent, _poolLevel, distribution);
                 
-                // Still send company fee
-                bnbToken.safeTransfer(companyWallet, fee);
-            } else {
-                // Normal distribution for non-last-4 nodes
-                bnbToken.safeTransfer(parent, distribution);
-                users[parent].poolIncome += distribution;
-                emit PoolIncomeEarned(parent, _poolLevel, distribution);
-                
-                // Company fee
-                bnbToken.safeTransfer(companyWallet, fee);
-                
-                // Auto-upgrade to next pool (only if tree is not complete or not in last 4)
-                if (!isTreeComplete) {
+                // Auto-progress only if not in last 4
+                if (!isLastFour) {
                     _placeInAutoPool(parent, _poolLevel + 1);
                 }
             }
+            
+            // Note: Income distribution is now handled immediately in _distributePoolIncomeLayered
+            // This section only tracks tree completion for last 4 nodes identification
         }
+    }
+    
+    /**
+     * @dev Distribute pool income in layered manner (3 levels up the tree)
+     * @param _user User who was just placed in pool
+     * @param _poolLevel Pool level
+     * @param _poolValue Total pool value for this level
+     */
+    function _distributePoolIncomeLayered(address _user, uint256 _poolLevel, uint256 _poolValue) private {
+        // Calculate distribution amounts based on percentages
+        // Layer 1 (immediate parent): 50% of pool value
+        uint256 layer1Amount = _poolValue * 50 / 100;
+        // Layer 2 (parent's parent): 25% of pool value
+        uint256 layer2Amount = _poolValue * 25 / 100;
+        // Layer 3 (parent's parent's parent): 15% of pool value
+        uint256 layer3Amount = _poolValue * 15 / 100;
+        // Company fee: 10% of pool value
+        uint256 poolCompanyFee = _poolValue * 10 / 100;
+        
+        // Get immediate parent
+        address immediateParent = userPools[_user][_poolLevel].parent;
+        
+        // Check if tree is complete and get last 4 nodes (for all layers)
+        bool isTreeComplete = completedNodesCount[_poolLevel] >= COMPLETE_POOL_SIZE;
+        address[4] memory storedLastFour = lastFourNodes[_poolLevel];
+        
+        // Distribute to Layer 1 (immediate parent)
+        if (immediateParent != address(0)) {
+            // Check if parent is in last 4 (income should be reserved)
+            bool isLastFour = false;
+            for (uint256 i = 0; i < LAST_NODES_COUNT; i++) {
+                if (storedLastFour[i] == immediateParent && storedLastFour[i] != address(0)) {
+                    isLastFour = true;
+                    break;
+                }
+            }
+            
+            if (isTreeComplete && isLastFour) {
+                // Reserve income for last 4 nodes
+                reservedIncome[immediateParent][_poolLevel] += layer1Amount;
+                emit IncomeReserved(immediateParent, _poolLevel, layer1Amount);
+            } else {
+                // Normal distribution
+                bnbToken.safeTransfer(immediateParent, layer1Amount);
+                users[immediateParent].poolIncome += layer1Amount;
+                emit PoolIncomeEarned(immediateParent, _poolLevel, layer1Amount);
+            }
+            
+            // Get Layer 2 parent (parent's parent)
+            address layer2Parent = userPools[immediateParent][_poolLevel].parent;
+            if (layer2Parent != address(0)) {
+                // Check if layer2 parent is in last 4
+                bool isLayer2LastFour = false;
+                for (uint256 i = 0; i < LAST_NODES_COUNT; i++) {
+                    if (storedLastFour[i] == layer2Parent && storedLastFour[i] != address(0)) {
+                        isLayer2LastFour = true;
+                        break;
+                    }
+                }
+                
+                if (isTreeComplete && isLayer2LastFour) {
+                    // Reserve income
+                    reservedIncome[layer2Parent][_poolLevel] += layer2Amount;
+                    emit IncomeReserved(layer2Parent, _poolLevel, layer2Amount);
+                } else {
+                    // Normal distribution
+                    bnbToken.safeTransfer(layer2Parent, layer2Amount);
+                    users[layer2Parent].poolIncome += layer2Amount;
+                    emit PoolIncomeEarned(layer2Parent, _poolLevel, layer2Amount);
+                }
+                
+                // Get Layer 3 parent (parent's parent's parent)
+                address layer3Parent = userPools[layer2Parent][_poolLevel].parent;
+                if (layer3Parent != address(0)) {
+                    // Check if layer3 parent is in last 4
+                    bool isLayer3LastFour = false;
+                    for (uint256 i = 0; i < LAST_NODES_COUNT; i++) {
+                        if (storedLastFour[i] == layer3Parent && storedLastFour[i] != address(0)) {
+                            isLayer3LastFour = true;
+                            break;
+                        }
+                    }
+                    
+                    if (isTreeComplete && isLayer3LastFour) {
+                        // Reserve income
+                        reservedIncome[layer3Parent][_poolLevel] += layer3Amount;
+                        emit IncomeReserved(layer3Parent, _poolLevel, layer3Amount);
+                    } else {
+                        // Normal distribution
+                        bnbToken.safeTransfer(layer3Parent, layer3Amount);
+                        users[layer3Parent].poolIncome += layer3Amount;
+                        emit PoolIncomeEarned(layer3Parent, _poolLevel, layer3Amount);
+                    }
+                }
+            }
+        }
+        
+        // Send company fee
+        bnbToken.safeTransfer(companyWallet, poolCompanyFee);
     }
     
     /**
@@ -660,6 +748,7 @@ contract MLMSystem is ReentrancyGuard {
         node.user = _user;
         node.left = address(0);
         node.right = address(0);
+        node.parent = address(0);
         node.poolLevel = _poolLevel;
         node.leftFilled = false;
         node.rightFilled = false;
@@ -721,6 +810,7 @@ contract MLMSystem is ReentrancyGuard {
         address user,
         address left,
         address right,
+        address parent,
         uint256 poolLevel,
         bool leftFilled,
         bool rightFilled,
@@ -733,6 +823,7 @@ contract MLMSystem is ReentrancyGuard {
             node.user,
             node.left,
             node.right,
+            node.parent,
             node.poolLevel,
             node.leftFilled,
             node.rightFilled,
