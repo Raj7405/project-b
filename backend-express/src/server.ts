@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import userRoutes from './routes/user.routes';
 import transactionRoutes from './routes/transaction.routes';
 import statsRoutes from './routes/stats.routes';
-import { startBlockchainListener } from './services/blockchain-listener.service';
+// import { startBlockchainListener } from './services/blockchain-listener.service';
 
 dotenv.config();
 
@@ -42,13 +42,13 @@ app.listen(PORT, async () => {
   console.log(`🔗 BSC RPC: ${process.env.BSC_RPC_URL}`);
   console.log(`📝 Contract: ${process.env.CONTRACT_ADDRESS}`);
   
-  // Start blockchain event listener
-  try {
-    await startBlockchainListener();
-    console.log('👂 Blockchain listener started');
-  } catch (error) {
-    console.error('❌ Failed to start blockchain listener:', error);
-  }
+  // // Start blockchain event listener
+  // try {
+  //   await startBlockchainListener();
+  //   console.log('👂 Blockchain listener started');
+  // } catch (error) {
+  //   console.error('❌ Failed to start blockchain listener:', error);
+  // }
 });
 
 export default app;
