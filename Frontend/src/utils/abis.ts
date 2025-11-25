@@ -33,7 +33,7 @@ export const CONTRACT_ABI = [
   "function LAST_NODES_COUNT() external pure returns (uint256)",
   
   // Events
-  "event UserRegistered(address indexed user, address indexed referrer, uint256 userId)",
+  "getNetwork UserRegistered(address indexed user, address indexed referrer, uint256 userId)",
   "event DirectIncomeEarned(address indexed user, address indexed from, uint256 amount)",
   "event PoolIncomeEarned(address indexed user, uint256 poolLevel, uint256 amount)",
   "event LevelIncomeEarned(address indexed user, address indexed from, uint256 level, uint256 amount)",

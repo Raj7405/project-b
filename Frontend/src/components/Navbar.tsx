@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useWeb3 } from '@/contexts/Web3Context'
 import { FaWallet, FaSignOutAlt, FaBars, FaTimes, FaSpinner } from 'react-icons/fa'
 import Link from 'next/link'
+import Image from 'next/image'
 
 export default function Navbar() {
   const { account, connectWallet, disconnectWallet, chainId } = useWeb3()
@@ -25,9 +26,9 @@ export default function Navbar() {
 
   const menuItems = [
     { name: 'Main', href: '#main' },
-    { name: 'Partners', href: '#partners' },
-    { name: 'Dashboard', href: '/dashboard' },
-    { name: 'Instructions', href: '#instructions' },
+    { name: 'Direct income', href: '/direct-income' },
+    { name: 'Pool income', href: '/pool-income' },
+    { name: 'Level income', href: '/level-income' },
   ]
 
   const handleConnectWallet = async () => {
@@ -44,7 +45,14 @@ export default function Navbar() {
           {/* Logo */}
           <div className="flex items-center">
             <Link href="/">
-              <h1 className="text-2xl font-bold text-white">Crypto MLM</h1>
+              <Image
+                src="/images/lxpro-logo.png"
+                alt="logo"
+                title="LXPRO"
+                width={140}
+                height={140}
+              
+              />
             </Link>
           </div>
 

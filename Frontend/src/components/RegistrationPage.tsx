@@ -21,13 +21,6 @@ export default function RegistrationPage() {
   })
   const { connectWallet, account, contract, tokenContract, provider } = useWeb3()
 
-  useEffect(() => {
-  
-    if (contract) {
-      contract.getUserReferrals(account, 10).then((res) => console.log(res))
-    }
-  }, [contract])
-
   const handleConnectWallet = async () => {
     setLoading(prev => ({ ...prev, isWalletConnecting: true }))
     await connectWallet()

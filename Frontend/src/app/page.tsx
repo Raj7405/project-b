@@ -9,6 +9,8 @@ import ReTopup from '@/components/ReTopup'
 import AdminPanel from '@/components/AdminPanel'
 import { useWeb3 } from '@/contexts/Web3Context'
 import toast from 'react-hot-toast'
+import dynamic from 'next/dynamic'
+const ThreeCoin3D = dynamic(() => import('@/components/demos/ThreeCoin3D'), { ssr: false })
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('dashboard')
@@ -30,29 +32,50 @@ export default function Home() {
   return (
     <div className="min-h-screen">      
       <section className="hero-mask-image w-full h-auto">
-        <div className="container mx-auto px-4 py-18">
+        <div className="container mx-auto px-4 lg:px-16 py-18">
           {!account ? (
-            <div className="text-center py-20 ">
-              <div>
-                <h1 className="text-7xl gradient-color-1 font-bold text-white mb-4">
-                  Welcome to Crypto MLM Platform
-                </h1>
-                <p className="text-6xl text-white mb-8">
-                  Connect your wallet to get started
-                </p>
-              </div>
-              <div className='max-w-4xl mx-auto py-10 flex flex-col justify-center items-center gap-10'>
-                <p>For Your Own Decentralized Business Matrix Platform</p>
-                <div className='flex justify-center items-center space-x-4'>
-                  <Link href="/registration" className="flex items-center justify-center space-x-2 bg-blue-gradient-primary hover:bg-white text-white px-6 py-3 rounded-lg transition-all w-full">
-                    <span>Registration</span>
-                  </Link>
-                  <Link href="/login" className="flex items-center justify-center space-x-2 bg-transparent border  hover:bg-white hover:text-black text-white px-6 py-3 rounded-lg transition-all w-full">
-                    <span>Login</span>
-                  </Link>     
+            <div className="">
+              {/* Hero Section with 3D Coin */}
+              <div className="flex flex-col-reverse lg:grid lg:grid-cols-2 gap-12 items-center mb-20 lg:min-h-[600px]">
+                {/* Left Side - Text and Buttons (appears second on mobile) */}
+                <div className="space-y-8 text-center lg:text-left">
+                  <div>
+                    <h1 className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl gradient-color-1 font-bold text-white mb-6 leading-tight">
+                      Welcome to Crypto MLM Platform
+                    </h1>
+                    <p className="text-xl sm:text-2xl lg:text-3xl text-gray-300 mb-4">
+                      Connect your wallet to get started
+                    </p>
+                    <p className="text-base sm:text-lg text-gray-400">
+                      For Your Own Decentralized Business Matrix Platform
+                    </p>
+                  </div>
+
+                  <div className='flex flex-col sm:flex-row gap-4 max-w-md mx-auto lg:mx-0'>
+                    <Link 
+                      href="/registration" 
+                      className="flex items-center justify-center space-x-2 bg-blue-gradient-primary hover:bg-white hover:text-black text-white px-8 py-4 rounded-lg transition-all font-semibold text-lg shadow-lg hover:shadow-xl transform hover:scale-105"
+                    >
+                      <span>Registration</span>
+                    </Link>
+                    <Link 
+                      href="/login" 
+                      className="flex items-center justify-center space-x-2 bg-transparent border-2 border-white hover:bg-white hover:text-black text-white px-8 py-4 rounded-lg transition-all font-semibold text-lg shadow-lg hover:shadow-xl transform hover:scale-105"
+                    >
+                      <span>Login</span>
+                    </Link>     
+                  </div>
+                </div>
+
+                {/* Right Side - 3D BNB Coin (appears first on mobile) */}
+                <div className="relative h-[400px] sm:h-[500px] lg:h-[600px] flex items-center justify-center">
+                  <div className="absolute inset-0 bg-gradient-radial from-yellow-500/10 via-transparent to-transparent blur-3xl"></div>
+                  <ThreeCoin3D />
                 </div>
               </div>
-              <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+
+              {/* Feature Cards */}
+              <div className="grid md:grid-cols-3 gap-6 max-w-6xl mx-auto">
                 <div className="gradient-card hover:scale-105 transition-transform duration-300">
                   <div className="gradient-card-inner">
                     <h3 className="text-xl font-semibold mb-2 text-white">📊 Direct Income</h3>
@@ -81,28 +104,18 @@ export default function Home() {
                   onClick={() => setActiveTab('dashboard')}
                   className={`px-4 py-2 font-medium ${
                     activeTab === 'dashboard'
-                      ? 'text-primary border-b-2 border-primary'
-                      : 'text-gray-600 hover:text-gray-800'
+                      ? 'text-white border-b-2 border-white'
+                      : 'text-gray-400 hover:text-white'
                   }`}
                 >
                   Dashboard
                 </button>
                 <button
-                  onClick={() => setActiveTab('register')}
-                  className={`px-4 py-2 font-medium ${
-                    activeTab === 'register'
-                      ? 'text-primary border-b-2 border-primary'
-                      : 'text-gray-600 hover:text-gray-800'
-                  }`}
-                >
-                  Register
-                </button>
-                <button
                   onClick={() => setActiveTab('retopup')}
                   className={`px-4 py-2 font-medium ${
                     activeTab === 'retopup'
-                      ? 'text-primary border-b-2 border-primary'
-                      : 'text-gray-600 hover:text-gray-800'
+                      ? 'text-white border-b-2 border-white'
+                      : 'text-gray-400 hover:text-white'
                   }`}
                 >
                   Re-Topup
@@ -112,8 +125,8 @@ export default function Home() {
                     onClick={() => setActiveTab('admin')}
                     className={`px-4 py-2 font-medium ${
                       activeTab === 'admin'
-                        ? 'text-primary border-b-2 border-primary'
-                        : 'text-gray-600 hover:text-gray-800'
+                        ? 'text-white border-b-2 border-white'
+                        : 'text-gray-400 hover:text-white'
                     }`}
                   >
                     Admin
@@ -122,11 +135,10 @@ export default function Home() {
               </div>
 
               {/* this for testing purpose, Remove when flow completed */}
-              <button className='bg-blue-gradient-primary text-white px-6 py-3 rounded-lg transition-all flex gap-2 items-center justify-center my-5' onClick={getReferrals}>Get Referrals</button>
+              {/* <button className='bg-blue-gradient-primary text-white px-6 py-3 rounded-lg transition-all flex gap-2 items-center justify-center my-5' onClick={getReferrals}>Get Referrals</button> */}
 
               {/* Content */}
               {activeTab === 'dashboard' && <Dashboard />}
-              {activeTab === 'register' && <Register />}
               {activeTab === 'retopup' && <ReTopup />}
               {activeTab === 'admin' && isOwner && <AdminPanel />}
             </>

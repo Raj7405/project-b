@@ -111,3 +111,6 @@ body {
   background: #555;
 }
 
+button{
+  cursor: pointer;
+}

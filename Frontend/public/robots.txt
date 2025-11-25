@@ -1,0 +1,13 @@
+# Robots.txt for Crypto MLM Platform
+
+User-agent: *
+Allow: /
+Disallow: /api/
+
+# Sitemap location
+Sitemap: https://yourwebsite.com/sitemap.xml
+
+# Crawl delay (optional - adjust as needed)
+# Crawl-delay: 10
+
+
