@@ -177,7 +177,7 @@ export default function RegistrationPage() {
     }
 
     // Validate upline ID
-    const uplineIdNum = parseInt(uplineId, 10)
+    const uplineIdNum = parseInt(uplineId, 10) || 1
     if (isNaN(uplineIdNum) || uplineIdNum < 1) {
       toast.error('Please enter a valid upline ID (must be 1 or greater)')
       return
@@ -253,7 +253,8 @@ export default function RegistrationPage() {
       // Convert upline ID to address
       let referrerAddress: string
       try {
-        referrerAddress = "0x90f79bf6eb2c4f870365e785982e1f101e93b906"
+        referrerAddress = await contract.idToAddress(uplineIdNum) 
+        console.log("referrerAddress", referrerAddress)
         // Check if address is valid (not zero address)
         if (!referrerAddress || referrerAddress === ethers.ZeroAddress) {
           toast.error(`Upline ID ${uplineId} does not exist or is invalid`)

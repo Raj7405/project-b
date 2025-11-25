@@ -11,7 +11,14 @@
     "deploy:testnet": "hardhat run deploy-testnet.js --network bscTestnet",
     "deploy:mainnet": "hardhat run deploy-mainnet.js --network bscMainnet",
     "node": "hardhat node",
-    "clean": "hardhat clean"
+    "clean": "hardhat clean",
+    "generate:accounts": "node generate-test-accounts.js",
+    "generate:accounts:5": "node generate-test-accounts.js 5",
+    "generate:accounts:10": "node generate-test-accounts.js 10",
+    "show:accounts": "node show-test-accounts.js",
+    "transfer": "hardhat run transfer-to-address.js --network localhost",
+    "transfer:batch": "hardhat run batch-transfer.js --network localhost",
+    "check:wallet": "hardhat run check-company-wallet.js --network localhost"
   },
   "keywords": [
     "blockchain",

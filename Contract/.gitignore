@@ -12,6 +12,9 @@ artifacts
 # Deployment files
 deployments/*.json
 
+# Test accounts (contains private keys - DO NOT COMMIT!)
+test-accounts.json
+
 # IDE
 .idea
 .vscode

@@ -487,96 +487,70 @@ contract MLMSystem is ReentrancyGuard {
      * @param _poolValue Total pool value for this level
      */
     function _distributePoolIncomeLayered(address _user, uint256 _poolLevel, uint256 _poolValue) private {
-        // Calculate distribution amounts based on percentages
-        // Layer 1 (immediate parent): 50% of pool value
-        uint256 layer1Amount = _poolValue * 50 / 100;
-        // Layer 2 (parent's parent): 25% of pool value
-        uint256 layer2Amount = _poolValue * 25 / 100;
-        // Layer 3 (parent's parent's parent): 15% of pool value
-        uint256 layer3Amount = _poolValue * 15 / 100;
-        // Company fee: 10% of pool value
-        uint256 poolCompanyFee = _poolValue * 10 / 100;
-        
         // Get immediate parent
-        address immediateParent = userPools[_user][_poolLevel].parent;
+        address parent = userPools[_user][_poolLevel].parent;
         
-        // Check if tree is complete and get last 4 nodes (for all layers)
+        // Check if tree is complete (for all layers)
         bool isTreeComplete = completedNodesCount[_poolLevel] >= COMPLETE_POOL_SIZE;
-        address[4] memory storedLastFour = lastFourNodes[_poolLevel];
         
-        // Distribute to Layer 1 (immediate parent)
-        if (immediateParent != address(0)) {
-            // Check if parent is in last 4 (income should be reserved)
-            bool isLastFour = false;
-            for (uint256 i = 0; i < LAST_NODES_COUNT; i++) {
-                if (storedLastFour[i] == immediateParent && storedLastFour[i] != address(0)) {
-                    isLastFour = true;
-                    break;
-                }
-            }
+        // Distribute to Layer 1 (immediate parent): 50% of pool value
+        if (parent != address(0)) {
+            _distributeToLayer(parent, _poolLevel, _poolValue * 50 / 100, isTreeComplete);
             
-            if (isTreeComplete && isLastFour) {
-                // Reserve income for last 4 nodes
-                reservedIncome[immediateParent][_poolLevel] += layer1Amount;
-                emit IncomeReserved(immediateParent, _poolLevel, layer1Amount);
-            } else {
-                // Normal distribution
-                bnbToken.safeTransfer(immediateParent, layer1Amount);
-                users[immediateParent].poolIncome += layer1Amount;
-                emit PoolIncomeEarned(immediateParent, _poolLevel, layer1Amount);
-            }
-            
-            // Get Layer 2 parent (parent's parent)
-            address layer2Parent = userPools[immediateParent][_poolLevel].parent;
-            if (layer2Parent != address(0)) {
-                // Check if layer2 parent is in last 4
-                bool isLayer2LastFour = false;
-                for (uint256 i = 0; i < LAST_NODES_COUNT; i++) {
-                    if (storedLastFour[i] == layer2Parent && storedLastFour[i] != address(0)) {
-                        isLayer2LastFour = true;
-                        break;
-                    }
-                }
+            // Get Layer 2 parent (parent's parent): 25% of pool value
+            address parent2 = userPools[parent][_poolLevel].parent;
+            if (parent2 != address(0)) {
+                _distributeToLayer(parent2, _poolLevel, _poolValue * 25 / 100, isTreeComplete);
                 
-                if (isTreeComplete && isLayer2LastFour) {
-                    // Reserve income
-                    reservedIncome[layer2Parent][_poolLevel] += layer2Amount;
-                    emit IncomeReserved(layer2Parent, _poolLevel, layer2Amount);
-                } else {
-                    // Normal distribution
-                    bnbToken.safeTransfer(layer2Parent, layer2Amount);
-                    users[layer2Parent].poolIncome += layer2Amount;
-                    emit PoolIncomeEarned(layer2Parent, _poolLevel, layer2Amount);
-                }
-                
-                // Get Layer 3 parent (parent's parent's parent)
-                address layer3Parent = userPools[layer2Parent][_poolLevel].parent;
-                if (layer3Parent != address(0)) {
-                    // Check if layer3 parent is in last 4
-                    bool isLayer3LastFour = false;
-                    for (uint256 i = 0; i < LAST_NODES_COUNT; i++) {
-                        if (storedLastFour[i] == layer3Parent && storedLastFour[i] != address(0)) {
-                            isLayer3LastFour = true;
-                            break;
-                        }
-                    }
-                    
-                    if (isTreeComplete && isLayer3LastFour) {
-                        // Reserve income
-                        reservedIncome[layer3Parent][_poolLevel] += layer3Amount;
-                        emit IncomeReserved(layer3Parent, _poolLevel, layer3Amount);
-                    } else {
-                        // Normal distribution
-                        bnbToken.safeTransfer(layer3Parent, layer3Amount);
-                        users[layer3Parent].poolIncome += layer3Amount;
-                        emit PoolIncomeEarned(layer3Parent, _poolLevel, layer3Amount);
-                    }
+                // Get Layer 3 parent (parent's parent's parent): 15% of pool value
+                address parent3 = userPools[parent2][_poolLevel].parent;
+                if (parent3 != address(0)) {
+                    _distributeToLayer(parent3, _poolLevel, _poolValue * 15 / 100, isTreeComplete);
                 }
             }
         }
         
-        // Send company fee
-        bnbToken.safeTransfer(companyWallet, poolCompanyFee);
+        // Send company fee: 10% of pool value
+        bnbToken.safeTransfer(companyWallet, _poolValue * 10 / 100);
+    }
+    
+    /**
+     * @dev Helper function to distribute income to a single layer
+     * @param _recipient Address to receive income
+     * @param _poolLevel Pool level
+     * @param _amount Amount to distribute
+     * @param _isTreeComplete Whether the tree is complete
+     */
+    function _distributeToLayer(address _recipient, uint256 _poolLevel, uint256 _amount, bool _isTreeComplete) private {
+        // Check if recipient is in last 4 nodes
+        bool isInLastFour = _isInLastFour(_recipient, _poolLevel);
+        
+        if (_isTreeComplete && isInLastFour) {
+            // Reserve income for last 4 nodes
+            reservedIncome[_recipient][_poolLevel] += _amount;
+            emit IncomeReserved(_recipient, _poolLevel, _amount);
+        } else {
+            // Normal distribution
+            bnbToken.safeTransfer(_recipient, _amount);
+            users[_recipient].poolIncome += _amount;
+            emit PoolIncomeEarned(_recipient, _poolLevel, _amount);
+        }
+    }
+    
+    /**
+     * @dev Check if an address is in the last 4 nodes
+     * @param _address Address to check
+     * @param _poolLevel Pool level
+     * @return True if address is in last 4 nodes
+     */
+    function _isInLastFour(address _address, uint256 _poolLevel) private view returns (bool) {
+        address[4] memory lastFour = lastFourNodes[_poolLevel];
+        for (uint256 i = 0; i < LAST_NODES_COUNT; i++) {
+            if (lastFour[i] == _address && lastFour[i] != address(0)) {
+                return true;
+            }
+        }
+        return false;
     }
     
     /**
