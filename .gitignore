@@ -90,6 +90,7 @@ Contract/.env
 # Documentation backups (optional)
 *.md.backup
 *.bak
+*.md
 
 # Test files (if you want to exclude)
 # *.test.js
