@@ -1,381 +1,277 @@
-// import { ethers } from 'ethers';
-// import prisma from '../config/database';
-// import { getProvider, getContract, CONTRACT_ABI } from '../config/blockchain';
-// import { TransactionType } from '@prisma/client';
+import { ethers } from 'ethers';
+import prisma from '../config/database';
+import { getProvider, getContract, CONTRACT_ABI } from '../config/blockchain';
+import { TransactionType } from '@prisma/client';
 
-// let isListening = false;
-// let lastProcessedBlock = BigInt(0);
+let isListening = false;
+let lastProcessedBlock = BigInt(0);
 
-// export const startBlockchainListener = async () => {
-//   if (isListening) {
-//     console.log('Blockchain listener is already running');
-//     return;
-//   }
+export const startBlockchainListener = async () => {
+  if (isListening) {
+    console.log('Blockchain listener is already running');
+    return;
+  }
 
-//   isListening = true;
-//   console.log('🎧 Starting BSC blockchain event listener...');
+  isListening = true;
+  console.log('🎧 Starting BSC blockchain event listener...');
 
-//   // Initialize last processed block from database
-//   const sync = await prisma.blockchainSync.findFirst();
-//   if (sync) {
-//     lastProcessedBlock = sync.lastBlock;
-//   } else {
-//     const startBlock = process.env.START_BLOCK || '0';
-//     lastProcessedBlock = BigInt(startBlock);
-//     await prisma.blockchainSync.create({
-//       data: { lastBlock: lastProcessedBlock }
-//     });
-//   }
+  // Initialize last processed block from database
+  const sync = await prisma.blockchainSync.findFirst();
+  if (sync) {
+    lastProcessedBlock = sync.lastBlock;
+  } else {
+    const startBlock = process.env.START_BLOCK || '0';
+    lastProcessedBlock = BigInt(startBlock);
+    await prisma.blockchainSync.create({
+      data: { lastBlock: lastProcessedBlock }
+    });
+  }
 
-//   console.log(`📍 Starting from block: ${lastProcessedBlock}`);
+  console.log(`📍 Starting from block: ${lastProcessedBlock}`);
 
-//   // Start polling
-//   startPolling();
-// };
+  // Start polling
+  startPolling();
+};
 
-// const startPolling = async () => {
-//   const pollingInterval = parseInt(process.env.POLLING_INTERVAL || '5000');
+const startPolling = async () => {
+  const pollingInterval = parseInt(process.env.POLLING_INTERVAL || '5000');
 
-//   setInterval(async () => {
-//     try {
-//       await processEvents();
-//     } catch (error) {
-//       console.error('❌ Error processing events:', error);
-//     }
-//   }, pollingInterval);
-// };
+  setInterval(async () => {
+    try {
+      await processEvents();
+    } catch (error) {
+      console.error('❌ Error processing events:', error);
+    }
+  }, pollingInterval);
+};
 
-// const processEvents = async () => {
-//   const provider = getProvider();
-//   const contract = getContract();
+const processEvents = async () => {
+  const provider = getProvider();
+  const contract = getContract();
 
-//   try {
-//     const currentBlock = await provider.getBlockNumber();
-//     const currentBlockBigInt = BigInt(currentBlock);
+  try {
+    const currentBlock = await provider.getBlockNumber();
+    const currentBlockBigInt = BigInt(currentBlock);
 
-//     if (currentBlockBigInt <= lastProcessedBlock) {
-//       return;
-//     }
+    if (currentBlockBigInt <= lastProcessedBlock) {
+      return;
+    }
 
-//     console.log(`📦 Processing blocks ${lastProcessedBlock} to ${currentBlockBigInt}`);
+    console.log(`📦 Processing blocks ${lastProcessedBlock} to ${currentBlockBigInt}`);
 
-//     // Process all event types
-//     await processUserRegisteredEvents(contract, lastProcessedBlock, currentBlockBigInt);
-//     await processDirectIncomeEvents(contract, lastProcessedBlock, currentBlockBigInt);
-//     await processLevelIncomeEvents(contract, lastProcessedBlock, currentBlockBigInt);
-//     await processAutoPoolIncomeEvents(contract, lastProcessedBlock, currentBlockBigInt);
-//     await processReTopupEvents(contract, lastProcessedBlock, currentBlockBigInt);
-//     await processAutoPoolEnqueuedEvents(contract, lastProcessedBlock, currentBlockBigInt);
-//     await processSkippedIncomeEvents(contract, lastProcessedBlock, currentBlockBigInt);
+    // Process all event types from new transaction-only contract
+    await processRegistrationAcceptedEvents(contract, lastProcessedBlock, currentBlockBigInt);
+    await processRetopupAcceptedEvents(contract, lastProcessedBlock, currentBlockBigInt);
+    await processPayoutExecutedEvents(contract, lastProcessedBlock, currentBlockBigInt);
+    await processBatchPayoutCompletedEvents(contract, lastProcessedBlock, currentBlockBigInt);
 
-//     // Update last processed block
-//     lastProcessedBlock = currentBlockBigInt;
-//     await prisma.blockchainSync.updateMany({
-//       data: { lastBlock: lastProcessedBlock }
-//     });
+    // Update last processed block
+    lastProcessedBlock = currentBlockBigInt;
+    await prisma.blockchainSync.updateMany({
+      data: { lastBlock: lastProcessedBlock }
+    });
 
-//     console.log(`✅ Processed up to block ${lastProcessedBlock}`);
-//   } catch (error) {
-//     console.error('Error in processEvents:', error);
-//   }
-// };
+    console.log(`✅ Processed up to block ${lastProcessedBlock}`);
+  } catch (error) {
+    console.error('Error in processEvents:', error);
+  }
+};
 
-// const processUserRegisteredEvents = async (
-//   contract: ethers.Contract,
-//   fromBlock: bigint,
-//   toBlock: bigint
-// ) => {
-//   const filter = contract.filters.UserRegistered();
-//   const events = await contract.queryFilter(filter, fromBlock, toBlock);
+const processRegistrationAcceptedEvents = async (
+  contract: ethers.Contract,
+  fromBlock: bigint,
+  toBlock: bigint
+) => {
+  const filter = contract.filters.RegistrationAccepted();
+  const events = await contract.queryFilter(filter, fromBlock, toBlock);
 
-//   for (const event of events) {
-//     try {
-//       const [id, wallet, parentId, wentToAutoPool] = event.args as any;
-//       const userId = BigInt(id.toString());
-//       const parentIdBigInt = BigInt(parentId.toString());
+  for (const event of events) {
+    try {
+      if (!('args' in event)) continue;
+      const [user, backendCaller, amount] = event.args as any;
+      const walletAddress = user.toLowerCase();
+      const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
-//       // Create or update user
-//       await prisma.user.upsert({
-//         where: { id: userId },
-//         create: {
-//           id: userId,
-//           walletAddress: wallet.toLowerCase(),
-//           parentId: parentIdBigInt > 0n ? parentIdBigInt : null,
-//           sponsorCount: 0,
-//           hasReTopup: false,
-//           hasAutoPoolEntry: wentToAutoPool
-//         },
-//         update: {
-//           walletAddress: wallet.toLowerCase(),
-//           parentId: parentIdBigInt > 0n ? parentIdBigInt : null
-//         }
-//       });
+      // Find or create user by wallet address
+      // Note: User ID management is handled in backend, not contract
+      let dbUser = await prisma.user.findUnique({
+        where: { walletAddress }
+      });
 
-//       // Increment parent's sponsor count
-//       if (parentIdBigInt > 0n) {
-//         await prisma.user.update({
-//           where: { id: parentIdBigInt },
-//           data: {
-//             sponsorCount: {
-//               increment: 1
-//             }
-//           }
-//         });
-//       }
+      if (!dbUser) {
+        // Create new user - backend should have already created this via API
+        // This is just a backup/verification
+        console.log(`⚠️  RegistrationAccepted for unknown user: ${walletAddress}`);
+      }
 
-//       // Record registration transaction
-//       await prisma.transaction.create({
-//         data: {
-//           txHash: event.transactionHash,
-//           userId,
-//           walletAddress: wallet.toLowerCase(),
-//           type: TransactionType.REGISTRATION,
-//           amount: 20,
-//           blockNumber: BigInt(event.blockNumber),
-//           description: 'User registration'
-//         }
-//       });
+      // Record registration transaction
+      if (dbUser) {
+        await prisma.transaction.create({
+          data: {
+            txHash: event.transactionHash,
+            userId: dbUser.id,
+            walletAddress,
+            type: TransactionType.REGISTRATION,
+            amount: amountInTokens,
+            blockNumber: BigInt(event.blockNumber),
+            description: `Registration accepted by backend: ${backendCaller}`
+          }
+        });
 
-//       console.log(`✅ UserRegistered: ID=${userId}, Wallet=${wallet}`);
-//     } catch (error) {
-//       console.error('Error processing UserRegistered event:', error);
-//     }
-//   }
-// };
+        console.log(`✅ RegistrationAccepted: Wallet=${walletAddress}, Amount=${amountInTokens}`);
+      }
+    } catch (error) {
+      console.error('Error processing RegistrationAccepted event:', error);
+    }
+  }
+};
 
-// const processDirectIncomeEvents = async (
-//   contract: ethers.Contract,
-//   fromBlock: bigint,
-//   toBlock: bigint
-// ) => {
-//   const filter = contract.filters.DirectIncomePaid();
-//   const events = await contract.queryFilter(filter, fromBlock, toBlock);
+const processRetopupAcceptedEvents = async (
+  contract: ethers.Contract,
+  fromBlock: bigint,
+  toBlock: bigint
+) => {
+  const filter = contract.filters.RetopupAccepted();
+  const events = await contract.queryFilter(filter, fromBlock, toBlock);
 
-//   for (const event of events) {
-//     try {
-//       const [toId, to, amount] = event.args as any;
-//       const userId = BigInt(toId.toString());
-//       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
+  for (const event of events) {
+    try {
+      if (!('args' in event)) continue;
+      const [user, backendCaller, amount, totalRetopups] = event.args as any;
+      const walletAddress = user.toLowerCase();
+      const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
-//       // Update user's total direct income
-//       await prisma.user.update({
-//         where: { id: userId },
-//         data: {
-//           totalDirectIncome: {
-//             increment: amountInTokens
-//           }
-//         }
-//       });
+      // Find user by wallet address
+      const dbUser = await prisma.user.findUnique({
+        where: { walletAddress }
+      });
 
-//       // Record transaction
-//       await prisma.transaction.create({
-//         data: {
-//           txHash: event.transactionHash,
-//           userId,
-//           walletAddress: to.toLowerCase(),
-//           type: TransactionType.DIRECT_INCOME,
-//           amount: amountInTokens,
-//           blockNumber: BigInt(event.blockNumber),
-//           description: 'Direct income from sponsor'
-//         }
-//       });
+      if (dbUser) {
+        // Mark user as having done retopup
+        await prisma.user.update({
+          where: { id: dbUser.id },
+          data: {
+            hasReTopup: true
+          }
+        });
 
-//       console.log(`✅ DirectIncomePaid: ID=${userId}, Amount=${amountInTokens}`);
-//     } catch (error) {
-//       console.error('Error processing DirectIncomePaid event:', error);
-//     }
-//   }
-// };
+        // Record retopup transaction
+        await prisma.transaction.create({
+          data: {
+            txHash: event.transactionHash,
+            userId: dbUser.id,
+            walletAddress,
+            type: TransactionType.RETOPUP,
+            amount: amountInTokens,
+            blockNumber: BigInt(event.blockNumber),
+            description: `Retopup #${totalRetopups} accepted by backend: ${backendCaller}`
+          }
+        });
 
-// const processLevelIncomeEvents = async (
-//   contract: ethers.Contract,
-//   fromBlock: bigint,
-//   toBlock: bigint
-// ) => {
-//   const filter = contract.filters.LevelIncomePaid();
-//   const events = await contract.queryFilter(filter, fromBlock, toBlock);
+        console.log(`✅ RetopupAccepted: Wallet=${walletAddress}, Amount=${amountInTokens}, Count=${totalRetopups}`);
+      } else {
+        console.log(`⚠️  RetopupAccepted for unknown user: ${walletAddress}`);
+      }
+    } catch (error) {
+      console.error('Error processing RetopupAccepted event:', error);
+    }
+  }
+};
 
-//   for (const event of events) {
-//     try {
-//       const [toId, to, amount, level] = event.args as any;
-//       const userId = BigInt(toId.toString());
-//       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
+const processPayoutExecutedEvents = async (
+  contract: ethers.Contract,
+  fromBlock: bigint,
+  toBlock: bigint
+) => {
+  const filter = contract.filters.PayoutExecuted();
+  const events = await contract.queryFilter(filter, fromBlock, toBlock);
 
-//       // Update user's total level income
-//       await prisma.user.update({
-//         where: { id: userId },
-//         data: {
-//           totalLevelIncome: {
-//             increment: amountInTokens
-//           }
-//         }
-//       });
+  for (const event of events) {
+    try {
+      if (!('args' in event)) continue;
+      const [user, amount, rewardType] = event.args as any;
+      const walletAddress = user.toLowerCase();
+      const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
-//       // Record transaction
-//       await prisma.transaction.create({
-//         data: {
-//           txHash: event.transactionHash,
-//           userId,
-//           walletAddress: to.toLowerCase(),
-//           type: TransactionType.LEVEL_INCOME,
-//           amount: amountInTokens,
-//           blockNumber: BigInt(event.blockNumber),
-//           description: `Level ${level} income from re-topup`
-//         }
-//       });
+      // Find user by wallet address
+      const dbUser = await prisma.user.findUnique({
+        where: { walletAddress }
+      });
 
-//       console.log(`✅ LevelIncomePaid: ID=${userId}, Level=${level}, Amount=${amountInTokens}`);
-//     } catch (error) {
-//       console.error('Error processing LevelIncomePaid event:', error);
-//     }
-//   }
-// };
+      if (dbUser) {
+        // Determine transaction type based on rewardType string
+        let transactionType: TransactionType;
+        if (rewardType.includes('DIRECT')) {
+          transactionType = TransactionType.DIRECT_INCOME;
+          await prisma.user.update({
+            where: { id: dbUser.id },
+            data: {
+              totalDirectIncome: { increment: amountInTokens }
+            }
+          });
+        } else if (rewardType.includes('LEVEL')) {
+          transactionType = TransactionType.LEVEL_INCOME;
+          await prisma.user.update({
+            where: { id: dbUser.id },
+            data: {
+              totalLevelIncome: { increment: amountInTokens }
+            }
+          });
+        } else if (rewardType.includes('POOL') || rewardType.includes('AUTO')) {
+          transactionType = TransactionType.AUTO_POOL_INCOME;
+          await prisma.user.update({
+            where: { id: dbUser.id },
+            data: {
+              totalAutoPoolIncome: { increment: amountInTokens }
+            }
+          });
+        } else {
+          transactionType = TransactionType.DIRECT_INCOME; // Default
+        }
 
-// const processAutoPoolIncomeEvents = async (
-//   contract: ethers.Contract,
-//   fromBlock: bigint,
-//   toBlock: bigint
-// ) => {
-//   const filter = contract.filters.AutoPoolIncomePaid();
-//   const events = await contract.queryFilter(filter, fromBlock, toBlock);
+        // Record payout transaction
+        await prisma.transaction.create({
+          data: {
+            txHash: event.transactionHash,
+            userId: dbUser.id,
+            walletAddress,
+            type: transactionType,
+            amount: amountInTokens,
+            blockNumber: BigInt(event.blockNumber),
+            description: `Payout executed: ${rewardType}`
+          }
+        });
 
-//   for (const event of events) {
-//     try {
-//       const [toId, to, amount] = event.args as any;
-//       const userId = BigInt(toId.toString());
-//       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
+        console.log(`✅ PayoutExecuted: Wallet=${walletAddress}, Type=${rewardType}, Amount=${amountInTokens}`);
+      } else {
+        console.log(`⚠️  PayoutExecuted for unknown user: ${walletAddress}`);
+      }
+    } catch (error) {
+      console.error('Error processing PayoutExecuted event:', error);
+    }
+  }
+};
 
-//       // Update user's total auto pool income
-//       await prisma.user.update({
-//         where: { id: userId },
-//         data: {
-//           totalAutoPoolIncome: {
-//             increment: amountInTokens
-//           }
-//         }
-//       });
+const processBatchPayoutCompletedEvents = async (
+  contract: ethers.Contract,
+  fromBlock: bigint,
+  toBlock: bigint
+) => {
+  const filter = contract.filters.BatchPayoutCompleted();
+  const events = await contract.queryFilter(filter, fromBlock, toBlock);
 
-//       // Record transaction
-//       await prisma.transaction.create({
-//         data: {
-//           txHash: event.transactionHash,
-//           userId,
-//           walletAddress: to.toLowerCase(),
-//           type: TransactionType.AUTO_POOL_INCOME,
-//           amount: amountInTokens,
-//           blockNumber: BigInt(event.blockNumber),
-//           description: 'Auto pool income'
-//         }
-//       });
+  for (const event of events) {
+    try {
+      if (!('args' in event)) continue;
+      const [totalAmount, userCount] = event.args as any;
+      const totalAmountInTokens = parseFloat(ethers.formatUnits(totalAmount, 18));
 
-//       console.log(`✅ AutoPoolIncomePaid: ID=${userId}, Amount=${amountInTokens}`);
-//     } catch (error) {
-//       console.error('Error processing AutoPoolIncomePaid event:', error);
-//     }
-//   }
-// };
+      console.log(`✅ BatchPayoutCompleted: Total=${totalAmountInTokens}, Users=${userCount}, TX=${event.transactionHash}`);
+      // Note: Individual payouts are tracked via PayoutExecuted events
+    } catch (error) {
+      console.error('Error processing BatchPayoutCompleted event:', error);
+    }
+  }
+};
 
-// const processReTopupEvents = async (
-//   contract: ethers.Contract,
-//   fromBlock: bigint,
-//   toBlock: bigint
-// ) => {
-//   const filter = contract.filters.ReTopupProcessed();
-//   const events = await contract.queryFilter(filter, fromBlock, toBlock);
-
-//   for (const event of events) {
-//     try {
-//       const [id, wallet, amount] = event.args as any;
-//       const userId = BigInt(id.toString());
-//       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
-
-//       // Mark user as having done re-topup
-//       await prisma.user.update({
-//         where: { id: userId },
-//         data: {
-//           hasReTopup: true
-//         }
-//       });
-
-//       // Record transaction
-//       await prisma.transaction.create({
-//         data: {
-//           txHash: event.transactionHash,
-//           userId,
-//           walletAddress: wallet.toLowerCase(),
-//           type: TransactionType.RETOPUP,
-//           amount: amountInTokens,
-//           blockNumber: BigInt(event.blockNumber),
-//           description: 'Re-topup completed'
-//         }
-//       });
-
-//       console.log(`✅ ReTopupProcessed: ID=${userId}, Amount=${amountInTokens}`);
-//     } catch (error) {
-//       console.error('Error processing ReTopupProcessed event:', error);
-//     }
-//   }
-// };
-
-// const processAutoPoolEnqueuedEvents = async (
-//   contract: ethers.Contract,
-//   fromBlock: bigint,
-//   toBlock: bigint
-// ) => {
-//   const filter = contract.filters.AutoPoolEnqueued();
-//   const events = await contract.queryFilter(filter, fromBlock, toBlock);
-
-//   for (const event of events) {
-//     try {
-//       const [id, wallet] = event.args as any;
-//       const userId = BigInt(id.toString());
-
-//       // Mark user as having entered auto pool
-//       await prisma.user.update({
-//         where: { id: userId },
-//         data: {
-//           hasAutoPoolEntry: true
-//         }
-//       });
-
-//       console.log(`✅ AutoPoolEnqueued: ID=${userId}`);
-//     } catch (error) {
-//       console.error('Error processing AutoPoolEnqueued event:', error);
-//     }
-//   }
-// };
-
-// const processSkippedIncomeEvents = async (
-//   contract: ethers.Contract,
-//   fromBlock: bigint,
-//   toBlock: bigint
-// ) => {
-//   const filter = contract.filters.ReTopupSkippedToCompany();
-//   const events = await contract.queryFilter(filter, fromBlock, toBlock);
-
-//   for (const event of events) {
-//     try {
-//       const [skippedId, skippedWallet, amount, level] = event.args as any;
-//       const userId = BigInt(skippedId.toString());
-//       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
-
-//       // Record skipped transaction
-//       await prisma.transaction.create({
-//         data: {
-//           txHash: event.transactionHash,
-//           userId,
-//           walletAddress: skippedWallet.toLowerCase(),
-//           type: TransactionType.RETOPUP_SKIPPED,
-//           amount: amountInTokens,
-//           blockNumber: BigInt(event.blockNumber),
-//           description: `Level ${level} income skipped (no re-topup)`
-//         }
-//       });
-
-//       console.log(`✅ ReTopupSkippedToCompany: ID=${userId}, Level=${level}`);
-//     } catch (error) {
-//       console.error('Error processing ReTopupSkippedToCompany event:', error);
-//     }
-//   }
-// };
 

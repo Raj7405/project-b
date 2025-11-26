@@ -11,11 +11,17 @@
     "db:generate": "npx prisma generate",
     "db:studio": "npx prisma studio"
   },
-  "keywords": ["crypto", "mlm", "bsc", "bep20", "express"],
+  "keywords": [
+    "crypto",
+    "mlm",
+    "bsc",
+    "bep20",
+    "express"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@prisma/client": "^5.7.0",
+    "@prisma/client": "^7.0.1",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "ethers": "^6.9.0",
@@ -29,9 +35,12 @@
     "@types/morgan": "^1.9.9",
     "@types/node": "^20.10.5",
     "nodemon": "^3.0.2",
-    "prisma": "^5.7.0",
+    "prisma": "^7.0.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma",
+    "config": "prisma.config.ts"
   }
 }
-
