@@ -3,17 +3,24 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// BEP-20 Contract ABI (same as ERC-20 but on BSC)
+// Crypto MLM Transactions Contract ABI
 export const CONTRACT_ABI = [
-  "event UserRegistered(uint256 indexed id, address indexed wallet, uint256 indexed parentId, bool wentToAutoPool)",
-  "event DirectIncomePaid(uint256 indexed toId, address indexed to, uint256 amount)",
-  "event LevelIncomePaid(uint256 indexed toId, address indexed to, uint256 amount, uint8 level)",
-  "event AutoPoolIncomePaid(uint256 indexed toId, address indexed to, uint256 amount)",
-  "event ReTopupProcessed(uint256 indexed id, address indexed wallet, uint256 amount)",
-  "event AutoPoolEnqueued(uint256 indexed id, address indexed wallet)",
-  "event ReTopupSkippedToCompany(uint256 indexed skippedId, address indexed skippedWallet, uint256 amount, uint8 level)",
-  "function getUserId(address wallet) view returns (uint256)",
-  "function userInfo(uint256 id) view returns (address wallet, uint256 parentId, uint16 sponsorCount, bool exists, bool hasReTopup)",
+  // Events
+  "event RegistrationAccepted(address indexed user, address indexed backendCaller, uint256 amount)",
+  "event RetopupAccepted(address indexed user, address indexed backendCaller, uint256 amount, uint256 totalRetopups)",
+  "event PayoutExecuted(address indexed user, uint256 amount, string rewardType)",
+  "event BatchPayoutCompleted(uint256 totalAmount, uint256 userCount)",
+  "event BackendWalletUpdated(address indexed previousBackend, address indexed newBackend)",
+  "event CompanyWalletUpdated(address indexed previousCompanyWallet, address indexed newCompanyWallet)",
+  "event CompanyWithdrawal(address indexed recipient, uint256 amount)",
+  "event ExternalTokenRescued(address indexed token, address indexed recipient, uint256 amount)",
+  // View functions
+  "function registered(address) view returns (bool)",
+  "function retopupCount(address) view returns (uint256)",
+  "function totalPaidIn(address) view returns (uint256)",
+  "function totalPayouts(address) view returns (uint256)",
+  "function getContractBalance() view returns (uint256)",
+  "function hasRetopup(address) view returns (bool)",
   "function owner() view returns (address)"
 ];
 
