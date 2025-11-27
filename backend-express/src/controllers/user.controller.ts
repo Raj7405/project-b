@@ -3,7 +3,7 @@ import prisma from '../config/database';
 
 export const getUserById = async (req: Request, res: Response) => {
   try {
-    const userId = BigInt(req.params.userId);
+    const userId = String(req.params.userId);
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -47,7 +47,7 @@ export const getUserByWallet = async (req: Request, res: Response) => {
 
 export const getChildren = async (req: Request, res: Response) => {
   try {
-    const parentId = BigInt(req.params.parentId);
+    const parentId = String(req.params.parentId);
     const children = await prisma.user.findMany({
       where: { parentId }
     });
