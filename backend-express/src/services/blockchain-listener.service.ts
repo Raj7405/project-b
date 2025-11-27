@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import prisma from '../config/database';
 import { getProvider, getContract, CONTRACT_ABI } from '../config/blockchain';
 import { TransactionType } from '@prisma/client';
+import { processRegistrationPayout, processRetopupPayout } from './payout-distribution.service';
 
 let isListening = false;
 let lastProcessedBlock = BigInt(0);
@@ -59,13 +60,11 @@ const processEvents = async () => {
 
     console.log(`📦 Processing blocks ${lastProcessedBlock} to ${currentBlockBigInt}`);
 
-    // Process all event types from new transaction-only contract
     await processRegistrationAcceptedEvents(contract, lastProcessedBlock, currentBlockBigInt);
     await processRetopupAcceptedEvents(contract, lastProcessedBlock, currentBlockBigInt);
     await processPayoutExecutedEvents(contract, lastProcessedBlock, currentBlockBigInt);
     await processBatchPayoutCompletedEvents(contract, lastProcessedBlock, currentBlockBigInt);
 
-    // Update last processed block
     lastProcessedBlock = currentBlockBigInt;
     await prisma.blockchainSync.updateMany({
       data: { lastBlock: lastProcessedBlock }
@@ -78,33 +77,44 @@ const processEvents = async () => {
 };
 
 const processRegistrationAcceptedEvents = async (
-  contract: ethers.Contract,
+  contract :ethers.Contract,
   fromBlock: bigint,
-  toBlock: bigint
-) => {
-  const filter = contract.filters.RegistrationAccepted();
-  const events = await contract.queryFilter(filter, fromBlock, toBlock);
+  toBlock:bigint
+) =>{
+  const filter= contract.filters.RegistrationAccepted()
+  const events= await contract.queryFilter(filter,fromBlock,toBlock)
 
-  for (const event of events) {
-    try {
-      if (!('args' in event)) continue;
+  for (const event of events){
+    try{
+      if (!('args' in event))continue;
+
       const [user, backendCaller, amount] = event.args as any;
-      const walletAddress = user.toLowerCase();
+      const walletAddress = user.toLowerCase(); 
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
-      // Find or create user by wallet address
-      // Note: User ID management is handled in backend, not contract
       let dbUser = await prisma.user.findUnique({
         where: { walletAddress }
       });
 
       if (!dbUser) {
-        // Create new user - backend should have already created this via API
-        // This is just a backup/verification
-        console.log(`⚠️  RegistrationAccepted for unknown user: ${walletAddress}`);
+        const newUplineId = createUplineId();
+        dbUser = await prisma.user.create({
+          data: {
+            id: newUplineId,
+            walletAddress,
+            parentId: null,
+            sponsorCount: 0,
+            hasReTopup: false,
+            hasAutoPoolEntry: false,
+            totalDirectIncome: 0,
+            totalLevelIncome: 0,
+            totalAutoPoolIncome: 0
+          }
+        });
+
+        console.log(`✅ Created new user from RegistrationAccepted: ID=${newUplineId}, Wallet=${walletAddress}`);
       }
 
-      // Record registration transaction
       if (dbUser) {
         await prisma.transaction.create({
           data: {
@@ -119,13 +129,32 @@ const processRegistrationAcceptedEvents = async (
         });
 
         console.log(`✅ RegistrationAccepted: Wallet=${walletAddress}, Amount=${amountInTokens}`);
+
+        const parentUser = dbUser.parentId 
+          ? await prisma.user.findUnique({
+              where: { id: dbUser.parentId },
+              select: { walletAddress: true }
+            })
+          : null;
+
+        const parentWalletAddress = parentUser?.walletAddress || null;
+
+        if (parentWalletAddress) {
+          console.log(`🔄 Processing payout distribution for registration...`);
+          try {
+            await processRegistrationPayout(walletAddress, parentWalletAddress);
+          } catch (payoutError) {
+            console.error('❌ Error processing registration payout:', payoutError);
+          }
+        } else {
+          console.log(`⚠️  No parent found for ${walletAddress}, skipping payout distribution`);
+        }
       }
     } catch (error) {
       console.error('Error processing RegistrationAccepted event:', error);
     }
   }
 };
-
 const processRetopupAcceptedEvents = async (
   contract: ethers.Contract,
   fromBlock: bigint,
@@ -169,6 +198,15 @@ const processRetopupAcceptedEvents = async (
         });
 
         console.log(`✅ RetopupAccepted: Wallet=${walletAddress}, Amount=${amountInTokens}, Count=${totalRetopups}`);
+
+        // Process retopup payout distribution (level income to 10 uplines)
+        console.log(`🔄 Processing retopup payout distribution...`);
+        try {
+          await processRetopupPayout(walletAddress);
+        } catch (payoutError) {
+          console.error('❌ Error processing retopup payout:', payoutError);
+          // Don't throw - continue processing other events
+        }
       } else {
         console.log(`⚠️  RetopupAccepted for unknown user: ${walletAddress}`);
       }
@@ -274,4 +312,9 @@ const processBatchPayoutCompletedEvents = async (
   }
 };
 
+const createUplineId = (): string => {
+  const digits = Math.floor(100 + Math.random() * 900);
+  const alphabets = Math.random().toString(36).substring(2, 5).toUpperCase();
+  return `${digits}-${alphabets}`;
+};
 

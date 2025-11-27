@@ -21,7 +21,13 @@ export const CONTRACT_ABI = [
   "function totalPayouts(address) view returns (uint256)",
   "function getContractBalance() view returns (uint256)",
   "function hasRetopup(address) view returns (bool)",
-  "function owner() view returns (address)"
+  "function owner() view returns (address)",
+  "function companyWallet() view returns (address)",
+  "function entryPrice() view returns (uint256)",
+  "function retopupPrice() view returns (uint256)",
+  // Write functions (used by backend with signer)
+  "function payout(address user, uint256 amount, string calldata rewardType) external",
+  "function executeBatchPayouts(address[] calldata users, uint256[] calldata amounts, string[] calldata rewardTypes) external"
 ];
 
 // BEP-20 Token ABI (standard interface)
