@@ -152,9 +152,9 @@ contract CryptoMLMTransactions is Ownable, ReentrancyGuard {
         companyWallet = newCompanyWallet;
     }
 
-    function register(address user, uint256 amount) external onlyBackend nonReentrant {
+    function register(address user, uint256 amount) external nonReentrant {
         require(user != address(0), "User required");
-        // require(!registered[user], "Already registered");
+        require(!registered[user], "Already registered");
         require(amount >= entryPrice, "Insufficient amount");
 
         bnbToken.safeTransferFrom(user, address(this), amount);

@@ -54,8 +54,6 @@ const startPolling = async () => {
   }, pollingInterval);
 };
 
-// Database connection is handled by ensureDatabaseConnection from database.ts
-
 const processEvents = async () => {
   const provider = getProvider();
   const contract = getContract();
@@ -72,7 +70,6 @@ const processEvents = async () => {
 
     console.log(`📦 Processing blocks ${lastProcessedBlock} to ${currentBlockBigInt}`);
 
-    // Process events (inclusive range - need to query fromBlock + 1 to catch new events)
     const fromBlock = lastProcessedBlock === BigInt(0) ? BigInt(0) : lastProcessedBlock + BigInt(1);
     await processRegistrationAcceptedEvents(contract, fromBlock, currentBlockBigInt);
     await processRetopupAcceptedEvents(contract, fromBlock, currentBlockBigInt);
@@ -81,7 +78,6 @@ const processEvents = async () => {
 
     lastProcessedBlock = currentBlockBigInt;
     
-    // Ensure connection before updating database
     await ensureDatabaseConnection();
     await prisma.blockchainSync.updateMany({
       data: { lastBlock: lastProcessedBlock }
@@ -157,7 +153,6 @@ const processRegistrationAcceptedEvents = async (
   }
 };
 
-
 const processRetopupAcceptedEvents = async (
   contract: ethers.Contract,
   fromBlock: bigint,
@@ -173,13 +168,11 @@ const processRetopupAcceptedEvents = async (
       const walletAddress = user;
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
-      // Find user by wallet address
       const dbUser = await prisma.user.findUnique({
         where: { walletAddress }
       });
 
       if (dbUser) {
-        // Mark user as having done retopup
         await prisma.user.update({
           where: { id: dbUser.id },
           data: {
@@ -187,7 +180,6 @@ const processRetopupAcceptedEvents = async (
           }
         });
 
-        // Check if transaction already exists (to avoid duplicates)
         const existingRetopupTx = await prisma.transaction.findFirst({
           where: {
             txHash: event.transactionHash,
@@ -197,7 +189,6 @@ const processRetopupAcceptedEvents = async (
         });
 
         if (!existingRetopupTx) {
-          // Record retopup transaction
           await prisma.transaction.create({
             data: {
               txHash: event.transactionHash,
@@ -214,13 +205,11 @@ const processRetopupAcceptedEvents = async (
           console.log(`⏭️  Retopup transaction already recorded: ${walletAddress}`);
         }
 
-        // Process retopup payout distribution (level income to 10 uplines)
         console.log(`🔄 Processing retopup payout distribution...`);
         try {
           await processRetopupPayout(walletAddress);
         } catch (payoutError) {
           console.error('❌ Error processing retopup payout:', payoutError);
-          // Don't throw - continue processing other events
         }
       } else {
         console.log(`⚠️  RetopupAccepted for unknown user: ${walletAddress}`);
@@ -246,13 +235,11 @@ const processPayoutExecutedEvents = async (
       const walletAddress = user;
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
-      // Find user by wallet address
       const dbUser = await prisma.user.findUnique({
         where: { walletAddress }
       });
 
       if (dbUser) {
-        // Determine transaction type based on rewardType string
         let transactionType: TransactionType;
         if (rewardType.includes('DIRECT')) {
           transactionType = TransactionType.DIRECT_INCOME;
@@ -261,7 +248,7 @@ const processPayoutExecutedEvents = async (
         } else if (rewardType.includes('POOL') || rewardType.includes('AUTO')) {
           transactionType = TransactionType.AUTO_POOL_INCOME;
         } else {
-          transactionType = TransactionType.DIRECT_INCOME; // Default
+          transactionType = TransactionType.DIRECT_INCOME;
         }
 
         const existingTransaction = await prisma.transaction.findFirst({
@@ -277,7 +264,6 @@ const processPayoutExecutedEvents = async (
           continue; 
         }
 
-        // Update user income
         if (rewardType.includes('DIRECT')) {
           await prisma.user.update({
             where: { id: dbUser.id },
@@ -301,7 +287,6 @@ const processPayoutExecutedEvents = async (
           });
         }
 
-        // Record payout transaction
         await prisma.transaction.create({
           data: {
             txHash: event.transactionHash,
@@ -339,7 +324,6 @@ const processBatchPayoutCompletedEvents = async (
       const totalAmountInTokens = parseFloat(ethers.formatUnits(totalAmount, 18));
 
       console.log(`✅ BatchPayoutCompleted: Total=${totalAmountInTokens}, Users=${userCount}, TX=${event.transactionHash}`);
-      // Note: Individual payouts are tracked via PayoutExecuted events
     } catch (error) {
       console.error('Error processing BatchPayoutCompleted event:', error);
     }

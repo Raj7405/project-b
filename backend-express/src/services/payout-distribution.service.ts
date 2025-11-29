@@ -2,10 +2,11 @@ import { ethers } from 'ethers';
 import prisma from '../config/database';
 import { getContract, getProvider } from '../config/blockchain';
 
-const ENTRY_PRICE_BNB = 20;
 const DIRECT_INCOME_BNB = 18;
 const COMPANY_FEE_BNB = 2;
 const TOKEN_DECIMALS = 18;
+const RETOPUP_PRICE_BNB = 40;
+const levelPercentages = [3000, 1500, 1000, 500, 500, 500, 500, 500, 1000, 1000];
 
 const getSigner = (): ethers.Wallet => {
   const privateKey = process.env.BACKEND_PRIVATE_KEY;
@@ -127,10 +128,6 @@ export const processRegistrationPayout = async (
   }
 };
 
-/**
- * Process retopup level income distribution
- * Distributes to 10 upline levels based on configured percentages
- */
 export const processRetopupPayout = async (
   retopupUserWalletAddress: string
 ): Promise<void> => {
@@ -179,18 +176,12 @@ export const processRetopupPayout = async (
       return;
     }
 
-    // Level income percentages (in basis points, 10000 = 100%)
-    // Same as DecentReferral.sol: [3000, 1500, 1000, 500, 500, 500, 500, 500, 1000, 1000]
-    const levelPercentages = [3000, 1500, 1000, 500, 500, 500, 500, 500, 1000, 1000];
-    const RETOPUP_PRICE_BNB = 40;
     const retopupPriceWei = bnbToWei(RETOPUP_PRICE_BNB);
     const companyWallet = process.env.COMPANY_WALLET_ADDRESS;
-
     if (!companyWallet) {
       throw new Error('COMPANY_WALLET_ADDRESS not set in environment');
     }
 
-    // Build upline chain (max 10 levels)
     const uplineChain: Array<{ address: string; userId: string }> = [];
     let currentParent = retopupUser.parent;
 
@@ -199,38 +190,7 @@ export const processRetopupPayout = async (
         address: currentParent.walletAddress,
         userId: currentParent.id
       });
-      // Get next parent from database
-      const nextParent = await prisma.user.findUnique({
-        where: { id: currentParent.id },
-        include: {
-          parent: {
-            include: {
-              parent: {
-                include: {
-                  parent: {
-                    include: {
-                      parent: {
-                        include: {
-                          parent: {
-                            include: {
-                              parent: {
-                                include: {
-                                  parent: true
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      });
-      currentParent = nextParent?.parent || null;
+      currentParent = currentParent.parent;
     }
 
     const contract = getContractWithSigner();
@@ -240,25 +200,21 @@ export const processRetopupPayout = async (
 
     let totalDistributed = BigInt(0);
 
-    // Process each upline level
     for (let i = 0; i < Math.min(uplineChain.length, 10); i++) {
       const upline = uplineChain[i];
       const percentage = levelPercentages[i];
       const levelIncomeWei = (retopupPriceWei * BigInt(percentage)) / BigInt(10000);
 
-      // Check if upline has done retopup
       const uplineUser = await prisma.user.findUnique({
         where: { walletAddress: upline.address }
       });
 
       if (uplineUser?.hasReTopup) {
-        // Upline has done retopup: send income to upline
         users.push(upline.address);
         amounts.push(levelIncomeWei);
         rewardTypes.push(`LEVEL_INCOME_${i + 1}`);
         totalDistributed += levelIncomeWei;
       } else {
-        // Upline has not done retopup: send to company wallet
         users.push(companyWallet);
         amounts.push(levelIncomeWei);
         rewardTypes.push(`LEVEL_INCOME_FORFEITED_LEVEL_${i + 1}`);
@@ -266,7 +222,6 @@ export const processRetopupPayout = async (
       }
     }
 
-    // Calculate company fee (remaining amount)
     const companyFeeWei = retopupPriceWei - totalDistributed;
     if (companyFeeWei > 0) {
       users.push(companyWallet);
@@ -279,21 +234,18 @@ export const processRetopupPayout = async (
       return;
     }
 
-    // Check contract balance
     const contractBalance = await contract.getContractBalance();
     const totalPayout = amounts.reduce((sum, amt) => sum + amt, BigInt(0));
     if (contractBalance < totalPayout) {
       throw new Error(`Insufficient contract balance for retopup payout`);
     }
 
-    // Execute batch payout
     const tx = await contract.executeBatchPayouts(users, amounts, rewardTypes);
     console.log(`📤 Retopup batch payout transaction sent: ${tx.hash}`);
     
     const receipt = await tx.wait();
     console.log(`✅ Retopup batch payout confirmed in block ${receipt.blockNumber}`);
 
-    // Update database records
     for (let i = 0; i < uplineChain.length && i < 10; i++) {
       const upline = uplineChain[i];
       const uplineUser = await prisma.user.findUnique({
@@ -334,4 +286,3 @@ export const processRetopupPayout = async (
     throw error;
   }
 };
-
