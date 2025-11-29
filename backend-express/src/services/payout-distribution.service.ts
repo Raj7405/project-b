@@ -49,7 +49,7 @@ export const processRegistrationPayout = async (
     }
 
     const parentUser = await prisma.user.findUnique({
-      where: { walletAddress: parentWalletAddress.toLowerCase() }
+      where: { walletAddress: parentWalletAddress }
     });
 
     if (!parentUser) {
@@ -111,7 +111,7 @@ export const processRegistrationPayout = async (
       data: {
         txHash: receipt.hash,
         userId: parentUser.id,
-        walletAddress: parentWalletAddress.toLowerCase(),
+        walletAddress: parentWalletAddress,
         type: 'DIRECT_INCOME',
         amount: DIRECT_INCOME_BNB,
         blockNumber: BigInt(receipt.blockNumber || 0),
@@ -136,7 +136,7 @@ export const processRetopupPayout = async (
 ): Promise<void> => {
   try {
     const retopupUser = await prisma.user.findUnique({
-      where: { walletAddress: retopupUserWalletAddress.toLowerCase() },
+      where: { walletAddress: retopupUserWalletAddress },
       include: {
         parent: {
           include: {
@@ -248,7 +248,7 @@ export const processRetopupPayout = async (
 
       // Check if upline has done retopup
       const uplineUser = await prisma.user.findUnique({
-        where: { walletAddress: upline.address.toLowerCase() }
+        where: { walletAddress: upline.address }
       });
 
       if (uplineUser?.hasReTopup) {
@@ -297,7 +297,7 @@ export const processRetopupPayout = async (
     for (let i = 0; i < uplineChain.length && i < 10; i++) {
       const upline = uplineChain[i];
       const uplineUser = await prisma.user.findUnique({
-        where: { walletAddress: upline.address.toLowerCase() }
+        where: { walletAddress: upline.address }
       });
 
       if (uplineUser?.hasReTopup) {
@@ -317,7 +317,7 @@ export const processRetopupPayout = async (
           data: {
             txHash: receipt.hash,
             userId: upline.userId,
-            walletAddress: upline.address.toLowerCase(),
+            walletAddress: upline.address,
             type: 'LEVEL_INCOME',
             amount: levelIncomeBNB,
             blockNumber: BigInt(receipt.blockNumber || 0),

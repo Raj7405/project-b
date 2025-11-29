@@ -3,11 +3,10 @@ import * as authController from '../controllers/auth.controller';
 
 const router = Router();
 
-// get requests
+// Get user by wallet address
 router.get('/get-register-user', authController.getRegisterUser);
 
-// post requests
-router.post('/register-validate', authController.validateRegistration);
-router.post('/link-user-to-parent', authController.linkUserToParentUser);
+// Register new user
+router.post('/register-user', authController.registerUser);
 
 export default router;

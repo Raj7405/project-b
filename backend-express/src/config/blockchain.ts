@@ -23,9 +23,12 @@ export const CONTRACT_ABI = [
   "function hasRetopup(address) view returns (bool)",
   "function owner() view returns (address)",
   "function companyWallet() view returns (address)",
+  "function backendWallet() view returns (address)",
   "function entryPrice() view returns (uint256)",
   "function retopupPrice() view returns (uint256)",
   // Write functions (used by backend with signer)
+  "function register(address user, uint256 amount) external",
+  "function retopup(address user, uint256 amount) external",
   "function payout(address user, uint256 amount, string calldata rewardType) external",
   "function executeBatchPayouts(address[] calldata users, uint256[] calldata amounts, string[] calldata rewardTypes) external"
 ];
@@ -46,7 +49,7 @@ export const getProvider = () => {
   return new ethers.JsonRpcProvider(rpcUrl);
 };
 
-// Get contract instance
+// Get contract instance (read-only with provider)
 export const getContract = () => {
   const provider = getProvider();
   const contractAddress = process.env.CONTRACT_ADDRESS;
@@ -54,6 +57,21 @@ export const getContract = () => {
     throw new Error('CONTRACT_ADDRESS not set in environment');
   }
   return new ethers.Contract(contractAddress, CONTRACT_ABI, provider);
+};
+
+// Get contract instance with signer (for write operations)
+export const getContractWithSigner = () => {
+  const privateKey = process.env.BACKEND_PRIVATE_KEY;
+  if (!privateKey) {
+    throw new Error('BACKEND_PRIVATE_KEY not set in environment');
+  }
+  const provider = getProvider();
+  const signer = new ethers.Wallet(privateKey, provider);
+  const contractAddress = process.env.CONTRACT_ADDRESS;
+  if (!contractAddress) {
+    throw new Error('CONTRACT_ADDRESS not set in environment');
+  }
+  return new ethers.Contract(contractAddress, CONTRACT_ABI, signer);
 };
 
 // Get token contract instance

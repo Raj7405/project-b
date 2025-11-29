@@ -1,7 +1,7 @@
 import { ethers } from 'ethers';
-import prisma from '../config/database';
+import prisma, { ensureDatabaseConnection } from '../config/database';
 import { getProvider, getContract, CONTRACT_ABI } from '../config/blockchain';
-import { TransactionType } from '@prisma/client';
+import { PaymentStatus, TransactionType } from '@prisma/client';
 import { processRegistrationPayout, processRetopupPayout } from './payout-distribution.service';
 
 let isListening = false;
@@ -13,25 +13,33 @@ export const startBlockchainListener = async () => {
     return;
   }
 
-  isListening = true;
   console.log('🎧 Starting BSC blockchain event listener...');
 
-  // Initialize last processed block from database
-  const sync = await prisma.blockchainSync.findFirst();
-  if (sync) {
-    lastProcessedBlock = sync.lastBlock;
-  } else {
-    const startBlock = process.env.START_BLOCK || '0';
-    lastProcessedBlock = BigInt(startBlock);
-    await prisma.blockchainSync.create({
-      data: { lastBlock: lastProcessedBlock }
-    });
+  try {
+    await prisma.$connect();
+    console.log('✅ Database connected');
+
+    const sync = await prisma.blockchainSync.findFirst();
+    if (sync) {
+      lastProcessedBlock = sync.lastBlock;
+    } else {
+      const startBlock = process.env.START_BLOCK || '0';
+      lastProcessedBlock = BigInt(startBlock);
+      await prisma.blockchainSync.create({
+        data: { lastBlock: lastProcessedBlock }
+      });
+    }
+
+    console.log(`📍 Starting from block: ${lastProcessedBlock}`);
+
+    isListening = true;
+    startPolling();
+  } catch (error: any) {
+    console.error('❌ Failed to start blockchain listener:', error.message);
+    console.error('💡 Database connection failed. Check DATABASE_URL and ensure database is accessible.');
+    isListening = false;
+    throw error;
   }
-
-  console.log(`📍 Starting from block: ${lastProcessedBlock}`);
-
-  // Start polling
-  startPolling();
 };
 
 const startPolling = async () => {
@@ -46,11 +54,15 @@ const startPolling = async () => {
   }, pollingInterval);
 };
 
+// Database connection is handled by ensureDatabaseConnection from database.ts
+
 const processEvents = async () => {
   const provider = getProvider();
   const contract = getContract();
 
   try {
+    await ensureDatabaseConnection();
+    
     const currentBlock = await provider.getBlockNumber();
     const currentBlockBigInt = BigInt(currentBlock);
 
@@ -60,101 +72,92 @@ const processEvents = async () => {
 
     console.log(`📦 Processing blocks ${lastProcessedBlock} to ${currentBlockBigInt}`);
 
-    await processRegistrationAcceptedEvents(contract, lastProcessedBlock, currentBlockBigInt);
-    await processRetopupAcceptedEvents(contract, lastProcessedBlock, currentBlockBigInt);
-    await processPayoutExecutedEvents(contract, lastProcessedBlock, currentBlockBigInt);
-    await processBatchPayoutCompletedEvents(contract, lastProcessedBlock, currentBlockBigInt);
+    // Process events (inclusive range - need to query fromBlock + 1 to catch new events)
+    const fromBlock = lastProcessedBlock === BigInt(0) ? BigInt(0) : lastProcessedBlock + BigInt(1);
+    await processRegistrationAcceptedEvents(contract, fromBlock, currentBlockBigInt);
+    await processRetopupAcceptedEvents(contract, fromBlock, currentBlockBigInt);
+    await processPayoutExecutedEvents(contract, fromBlock, currentBlockBigInt);
+    await processBatchPayoutCompletedEvents(contract, fromBlock, currentBlockBigInt);
 
     lastProcessedBlock = currentBlockBigInt;
+    
+    // Ensure connection before updating database
+    await ensureDatabaseConnection();
     await prisma.blockchainSync.updateMany({
       data: { lastBlock: lastProcessedBlock }
     });
 
     console.log(`✅ Processed up to block ${lastProcessedBlock}`);
-  } catch (error) {
-    console.error('Error in processEvents:', error);
+  } catch (error: any) {
+    console.error('Error in processEvents:', error.message || error);
   }
 };
 
 const processRegistrationAcceptedEvents = async (
-  contract :ethers.Contract,
+  contract: ethers.Contract,
   fromBlock: bigint,
-  toBlock:bigint
-) =>{
-  const filter= contract.filters.RegistrationAccepted()
-  const events= await contract.queryFilter(filter,fromBlock,toBlock)
+  toBlock: bigint
+) => {
+  const filter = contract.filters.RegistrationAccepted();
+  const events = await contract.queryFilter(filter, fromBlock, toBlock);
 
-  for (const event of events){
-    try{
-      if (!('args' in event))continue;
+  if (events.length > 0) {
+    console.log(`📥 Found ${events.length} RegistrationAccepted event(s) in blocks ${fromBlock} to ${toBlock}`);
+  }
+
+  for (const event of events) {
+    try {
+      if (!('args' in event)) continue;
 
       const [user, backendCaller, amount] = event.args as any;
-      const walletAddress = user.toLowerCase(); 
+      const walletAddress = user; 
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
+
+      console.log(`🔍 Processing RegistrationAccepted event for: ${walletAddress}`);
 
       let dbUser = await prisma.user.findUnique({
         where: { walletAddress }
       });
 
       if (!dbUser) {
-        const newUplineId = createUplineId();
-        dbUser = await prisma.user.create({
-          data: {
-            id: newUplineId,
-            walletAddress,
-            parentId: null,
-            sponsorCount: 0,
-            hasReTopup: false,
-            hasAutoPoolEntry: false,
-            totalDirectIncome: 0,
-            totalLevelIncome: 0,
-            totalAutoPoolIncome: 0
-          }
-        });
-
-        console.log(`✅ Created new user from RegistrationAccepted: ID=${newUplineId}, Wallet=${walletAddress}`);
+        console.log(`⚠️  User not found in database: ${walletAddress}, skipping registration event processing`);
+        console.log(`💡 Make sure user was created in database before contract registration`);
+        continue; 
       }
 
-      if (dbUser) {
-        await prisma.transaction.create({
-          data: {
-            txHash: event.transactionHash,
-            userId: dbUser.id,
-            walletAddress,
-            type: TransactionType.REGISTRATION,
-            amount: amountInTokens,
-            blockNumber: BigInt(event.blockNumber),
-            description: `Registration accepted by backend: ${backendCaller}`
-          }
-        });
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: { paymentStatus: PaymentStatus.COMPLETED }
+      });
 
-        console.log(`✅ RegistrationAccepted: Wallet=${walletAddress}, Amount=${amountInTokens}`);
+      console.log(`✅ RegistrationAccepted: Wallet=${walletAddress}, Amount=${amountInTokens}`);
 
-        const parentUser = dbUser.parentId 
-          ? await prisma.user.findUnique({
-              where: { id: dbUser.parentId },
-              select: { walletAddress: true }
-            })
-          : null;
+      const parentUser = dbUser.parentId
+        ? await prisma.user.findUnique({
+            where: { id: dbUser.parentId },
+            select: { walletAddress: true }
+          })
+        : null;
 
-        const parentWalletAddress = parentUser?.walletAddress || null;
+      const parentWalletAddress = parentUser?.walletAddress || null;
 
-        if (parentWalletAddress) {
-          console.log(`🔄 Processing payout distribution for registration...`);
-          try {
-            await processRegistrationPayout(walletAddress, parentWalletAddress);
-          } catch (payoutError) {
-            console.error('❌ Error processing registration payout:', payoutError);
-          }
-        } else {
-          console.log(`⚠️  No parent found for ${walletAddress}, skipping payout distribution`);
+      if (parentWalletAddress) {
+        console.log(`🔄 Processing payout distribution for registration...`);
+        try {
+          await processRegistrationPayout(walletAddress, parentWalletAddress);
+        } catch (payoutError) {
+          console.error('❌ Error processing registration payout:', payoutError);
         }
+      } else {
+        console.log(`⚠️  No parent found for ${walletAddress}, skipping payout distribution`);
       }
     } catch (error) {
       console.error('Error processing RegistrationAccepted event:', error);
     }
   }
 };
+
+
 const processRetopupAcceptedEvents = async (
   contract: ethers.Contract,
   fromBlock: bigint,
@@ -167,7 +170,7 @@ const processRetopupAcceptedEvents = async (
     try {
       if (!('args' in event)) continue;
       const [user, backendCaller, amount, totalRetopups] = event.args as any;
-      const walletAddress = user.toLowerCase();
+      const walletAddress = user;
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
       // Find user by wallet address
@@ -184,20 +187,32 @@ const processRetopupAcceptedEvents = async (
           }
         });
 
-        // Record retopup transaction
-        await prisma.transaction.create({
-          data: {
+        // Check if transaction already exists (to avoid duplicates)
+        const existingRetopupTx = await prisma.transaction.findFirst({
+          where: {
             txHash: event.transactionHash,
             userId: dbUser.id,
-            walletAddress,
-            type: TransactionType.RETOPUP,
-            amount: amountInTokens,
-            blockNumber: BigInt(event.blockNumber),
-            description: `Retopup #${totalRetopups} accepted by backend: ${backendCaller}`
+            type: TransactionType.RETOPUP
           }
         });
 
-        console.log(`✅ RetopupAccepted: Wallet=${walletAddress}, Amount=${amountInTokens}, Count=${totalRetopups}`);
+        if (!existingRetopupTx) {
+          // Record retopup transaction
+          await prisma.transaction.create({
+            data: {
+              txHash: event.transactionHash,
+              userId: dbUser.id,
+              walletAddress,
+              type: TransactionType.RETOPUP,
+              amount: amountInTokens,
+              blockNumber: BigInt(event.blockNumber),
+              description: `Retopup #${totalRetopups} accepted by backend: ${backendCaller}`
+            }
+          });
+          console.log(`✅ RetopupAccepted: Wallet=${walletAddress}, Amount=${amountInTokens}, Count=${totalRetopups}`);
+        } else {
+          console.log(`⏭️  Retopup transaction already recorded: ${walletAddress}`);
+        }
 
         // Process retopup payout distribution (level income to 10 uplines)
         console.log(`🔄 Processing retopup payout distribution...`);
@@ -228,7 +243,7 @@ const processPayoutExecutedEvents = async (
     try {
       if (!('args' in event)) continue;
       const [user, amount, rewardType] = event.args as any;
-      const walletAddress = user.toLowerCase();
+      const walletAddress = user;
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
       // Find user by wallet address
@@ -241,6 +256,29 @@ const processPayoutExecutedEvents = async (
         let transactionType: TransactionType;
         if (rewardType.includes('DIRECT')) {
           transactionType = TransactionType.DIRECT_INCOME;
+        } else if (rewardType.includes('LEVEL')) {
+          transactionType = TransactionType.LEVEL_INCOME;
+        } else if (rewardType.includes('POOL') || rewardType.includes('AUTO')) {
+          transactionType = TransactionType.AUTO_POOL_INCOME;
+        } else {
+          transactionType = TransactionType.DIRECT_INCOME; // Default
+        }
+
+        const existingTransaction = await prisma.transaction.findFirst({
+          where: {
+            txHash: event.transactionHash,
+            userId: dbUser.id,
+            type: transactionType
+          }
+        });
+
+        if (existingTransaction) {
+          console.log(`⏭️  PayoutExecuted transaction already processed: ${walletAddress}, Type=${rewardType}`);
+          continue; 
+        }
+
+        // Update user income
+        if (rewardType.includes('DIRECT')) {
           await prisma.user.update({
             where: { id: dbUser.id },
             data: {
@@ -248,7 +286,6 @@ const processPayoutExecutedEvents = async (
             }
           });
         } else if (rewardType.includes('LEVEL')) {
-          transactionType = TransactionType.LEVEL_INCOME;
           await prisma.user.update({
             where: { id: dbUser.id },
             data: {
@@ -256,15 +293,12 @@ const processPayoutExecutedEvents = async (
             }
           });
         } else if (rewardType.includes('POOL') || rewardType.includes('AUTO')) {
-          transactionType = TransactionType.AUTO_POOL_INCOME;
           await prisma.user.update({
             where: { id: dbUser.id },
             data: {
               totalAutoPoolIncome: { increment: amountInTokens }
             }
           });
-        } else {
-          transactionType = TransactionType.DIRECT_INCOME; // Default
         }
 
         // Record payout transaction
@@ -311,10 +345,3 @@ const processBatchPayoutCompletedEvents = async (
     }
   }
 };
-
-const createUplineId = (): string => {
-  const digits = Math.floor(100 + Math.random() * 900);
-  const alphabets = Math.random().toString(36).substring(2, 5).toUpperCase();
-  return `${digits}-${alphabets}`;
-};
-

@@ -20,6 +20,7 @@ model User {
   totalDirectIncome   Decimal  @default(0) @map("total_direct_income") @db.Decimal(20, 18)
   totalLevelIncome    Decimal  @default(0) @map("total_level_income") @db.Decimal(20, 18)
   totalAutoPoolIncome Decimal  @default(0) @map("total_auto_pool_income") @db.Decimal(20, 18)
+  paymentStatus       PaymentStatus   @default(PENDING) @map("payment_status")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
@@ -56,6 +57,12 @@ enum TransactionType {
   AUTO_POOL_INCOME
   RETOPUP
   RETOPUP_SKIPPED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
 }
 
 model BlockchainSync {

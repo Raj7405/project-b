@@ -1,13 +1,11 @@
 import { Request, Response } from 'express';
-import { getContract } from '../config/blockchain';
 import prisma from '../config/database';
-import { processRegistrationPayout } from '../services/payout-distribution.service';
+import { PaymentStatus } from '@prisma/client';
 
-export const validateRegistration = async (req: Request, res: Response) => {
+export const registerUser = async (req: Request, res: Response) => {
     try {
         const { walletAddress, uplineId } = req.body;
 
-        //write logic to check if user already exists
         const existingUser = await prisma.user.findUnique({
             where: {
                 walletAddress: walletAddress
@@ -35,9 +33,36 @@ export const validateRegistration = async (req: Request, res: Response) => {
                 });
         }
 
+        const newUplineId = createUplineId();
+        const newUser = await prisma.user.create({
+          data: {
+            id: newUplineId,
+            walletAddress,
+            parentId: uplineId,
+            paymentStatus: PaymentStatus.PENDING,
+            sponsorCount: 0,
+            hasReTopup: false,
+            hasAutoPoolEntry: false,
+            totalDirectIncome: 0,
+            totalLevelIncome: 0,
+            totalAutoPoolIncome: 0
+          }
+        });
+
+        // Frontend will call the contract directly
+        // Listener will automatically process the RegistrationAccepted event
+        // and update payment status + trigger payouts
+
         res.status(200).json({
             canRegister: true,
-            reason: ''
+            reason: '',
+            user: {
+                id: newUser.id,
+                walletAddress: newUser.walletAddress,
+                parentId: newUser.parentId,
+                paymentStatus: newUser.paymentStatus
+            },
+            message: 'User created in database. Please call contract.register() from frontend.'
         });
 
     } catch (error) {
@@ -65,67 +90,9 @@ export const getRegisterUser = async (req: Request, res: Response) => {
     }
 }
 
-export const linkUserToParentUser = async (req: Request, res: Response) => {
-    try {
-        const { walletAddress, parentId } = req.body;
-        const user = await prisma.user.findUnique({
-            where: {
-                walletAddress: walletAddress
-            }
-        });
 
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-        
-        await prisma.user.update({
-            where: {
-                walletAddress: walletAddress
-            },
-            data: {
-                parentId: parentId
-            }
-        });
-
-        const parentUser = await prisma.user.findUnique({
-            where: {
-                id: parentId
-            }
-        });
-        if (!parentUser) {
-            return res.status(404).json({ error: 'Parent user not found' });
-        }
-        await processRegistrationPayout(walletAddress, parentUser.walletAddress);
-        res.status(200).json({ message: 'User linked to parent user' });
-    } catch (error) {
-        console.error('Error linking user to parent:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-}
-
-export const register = async (req: Request, res: Response) => {
-    try {
-        const { walletAddress, uplineId } = req.body;
-
-        const contract = getContract();
-        const referrerAddress = await contract.idToAddress(BigInt(uplineId));
-        if (!referrerAddress) {
-            return res.status(400).json({ error: 'Invalid upline ID' });
-        }
-        const userId = await contract.register(referrerAddress);
-
-        res.status(200).json({ userId });
-    } catch (error) {
-        console.error('Error registering user:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-}
-
-export const login = async (req: Request, res: Response) => {
-    try {
-        const { walletAddress } = req.body;
-    } catch (error) {
-        console.error('Error logging in user:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-}
+const createUplineId = (): string => {
+    const digits = Math.floor(100 + Math.random() * 900);
+    const alphabets = Math.random().toString(36).substring(2, 5).toUpperCase();
+    return `${digits}-${alphabets}`;
+};  

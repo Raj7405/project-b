@@ -13,16 +13,25 @@ async function main() {
   let tokenAddress;
   
   try {
-    const deploymentFile = `${deploymentsDir}/localhost-latest.json`;
+    // Try crypto-mlm deployment first
+    const deploymentFile = `${deploymentsDir}/localhost-crypto-mlm.json`;
     const deploymentInfo = JSON.parse(require('fs').readFileSync(deploymentFile, 'utf8'));
     tokenAddress = deploymentInfo.tokenAddress;
-    console.log("📋 Found token address from deployment:", tokenAddress);
+    console.log("📋 Found token address from crypto-mlm deployment:", tokenAddress);
   } catch (e) {
-    tokenAddress = process.env.TOKEN_ADDRESS;
-    if (!tokenAddress) {
-      throw new Error("❌ Token address not found. Please deploy contracts first or set TOKEN_ADDRESS in .env");
+    try {
+      // Fallback to other deployment file
+      const deploymentFile = `${deploymentsDir}/localhost-latest.json`;
+      const deploymentInfo = JSON.parse(require('fs').readFileSync(deploymentFile, 'utf8'));
+      tokenAddress = deploymentInfo.tokenAddress;
+      console.log("📋 Found token address from deployment:", tokenAddress);
+    } catch (e2) {
+      tokenAddress = process.env.TOKEN_ADDRESS || "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+      if (!tokenAddress) {
+        throw new Error("❌ Token address not found. Please deploy contracts first or set TOKEN_ADDRESS in .env");
+      }
+      console.log("📋 Using token address from .env:", tokenAddress);
     }
-    console.log("📋 Using token address from .env:", tokenAddress);
   }
 
   // Get all test accounts
@@ -41,26 +50,33 @@ async function main() {
   const tokenDecimals = await token.decimals();
   console.log(`💰 Deployer balance: ${hre.ethers.formatUnits(deployerBalance, tokenDecimals)} tokens\n`);
 
-  // Amount to transfer to each test account (1000 tokens)
-  const transferAmount = hre.ethers.parseUnits("1000", tokenDecimals);
+  // Amount to transfer to each test account (500 tokens - enough for testing)
+  const transferAmount = hre.ethers.parseUnits("500", tokenDecimals);
+  
+  // Minimum balance needed (enough for registration + retopup)
+  const minBalance = hre.ethers.parseUnits("100", tokenDecimals);
 
-  // Transfer tokens to all test accounts (except deployer)
+  // Transfer tokens to first 5 test accounts (accounts 1-5, skipping deployer)
   console.log("📤 Transferring tokens to test accounts...\n");
-  for (let i = 1; i < accounts.length && i < 10; i++) {
+  const accountsToFund = Math.min(5, accounts.length - 1);
+  
+  for (let i = 1; i <= accountsToFund; i++) {
     const account = accounts[i];
     const currentBalance = await token.balanceOf(account.address);
     
-    if (currentBalance < transferAmount) {
+    if (currentBalance < minBalance) {
       try {
-        console.log(`Transferring to account #${i} (${account.address})...`);
+        console.log(`💰 Transferring 500 tokens to account #${i} (${account.address})...`);
         const tx = await token.transfer(account.address, transferAmount);
         await tx.wait();
-        console.log(`✅ Transferred 1000 tokens to account #${i}`);
+        const newBalance = await token.balanceOf(account.address);
+        console.log(`✅ Account #${i} now has ${hre.ethers.formatUnits(newBalance, tokenDecimals)} tokens\n`);
       } catch (error) {
         console.error(`❌ Failed to transfer to account #${i}:`, error.message);
       }
     } else {
-      console.log(`⏭️  Account #${i} already has sufficient balance`);
+      const balanceFormatted = hre.ethers.formatUnits(currentBalance, tokenDecimals);
+      console.log(`⏭️  Account #${i} already has sufficient balance: ${balanceFormatted} tokens\n`);
     }
   }
 
