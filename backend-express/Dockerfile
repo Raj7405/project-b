@@ -1,63 +1,53 @@
-# Multi-stage Dockerfile for Crypto MLM Backend
-# Stage 1: Build stage
+# Stage 1: Build Stage
 FROM node:20-alpine AS builder
-
-# Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy only dependency files first for better caching
 COPY package*.json ./
 COPY prisma ./prisma/
 
-# Install all dependencies (including dev dependencies for build)
+# Install dev dependencies for build
 RUN npm ci
 
-# Generate Prisma Client
+# Generate Prisma client for build
 RUN npx prisma generate
 
-# Copy source code
+# Copy entire source
 COPY . .
 
-# Build TypeScript to JavaScript
+# Build TypeScript (ensure dist folder exists)
 RUN npm run build
 
-# Stage 2: Production stage
-FROM node:20-alpine AS production
 
-# Set working directory
+# Stage 2: Production Stage
+FROM node:20-alpine AS production
 WORKDIR /app
 
-# Create non-root user for security
+ENV NODE_ENV=production
+
+# Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
 
-# Copy package files
+# Copy dependency defs
 COPY package*.json ./
 COPY prisma ./prisma/
 
 # Install only production dependencies
-RUN npm ci --only=production && \
-    npm cache clean --force
+RUN npm ci --only=production && npm cache clean --force
 
-# Generate Prisma Client for production
-RUN npx prisma generate
-
-# Copy built application from builder stage
+# Copy built output and prisma client from builder stage
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 
-# Change ownership to non-root user
+# Ownership: security
 RUN chown -R nodejs:nodejs /app
 
-# Switch to non-root user
 USER nodejs
 
-# Expose port
 EXPOSE 5000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:5000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+HEALTHCHECK --interval=30s --timeout=3s \
+  CMD node -e "require('http').get('http://localhost:5000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"
 
-# Start the application
 CMD ["node", "dist/server.js"]
-
