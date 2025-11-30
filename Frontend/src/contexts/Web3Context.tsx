@@ -75,7 +75,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         // Continue anyway - not critical for wallet connection
       }
 
-      setAccount(accounts[0])
+      // Normalize wallet address to lowercase for consistency across the app
+      setAccount(accounts[0].toLowerCase())
       setProvider(provider)
       setSigner(signer)
       setContract(contract)

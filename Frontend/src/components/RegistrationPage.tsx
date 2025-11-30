@@ -6,18 +6,32 @@ import { useWeb3 } from '@/contexts/Web3Context'
 import { ethers } from 'ethers'
 import toast from 'react-hot-toast'
 import { switchToHardhatNetwork, checkHardhatNodeRunning } from '@/utils/networkHelpers'
+import { useRouter } from 'next/navigation'
 
 export default function RegistrationPage() {
+  const router = useRouter()
   const [uplineId, setUplineId] = useState('1')
   const [isEditing, setIsEditing] = useState(false)
+  const [dbUserId, setDbUserId] = useState<string | null>(null) // Store DB user ID after backend registration
+  const [registerStep, setRegisterStep] = useState<{
+    backendRegistration: boolean,
+    tokenApproval: boolean,
+    blockchainRegistration: boolean,
+  }>({
+    backendRegistration: true,
+    tokenApproval: true,
+    blockchainRegistration: false,
+  })
   const [loading, setLoading] = useState<{
     isWalletConnecting: boolean,
-    isRegistrationLoading: boolean,
+    isBackendRegistering: boolean,
     isApproving: boolean,
+    isBlockchainRegistering: boolean,
   }>({
     isWalletConnecting: false,
-    isRegistrationLoading: false,
+    isBackendRegistering: false,
     isApproving: false,
+    isBlockchainRegistering: false,
   })
   const { connectWallet, account, contract, tokenContract, provider } = useWeb3()
 
@@ -39,6 +53,68 @@ export default function RegistrationPage() {
     )
   }
 
+  const handleBackendRegistration = async () => {
+    if (!account) {
+      toast.error('Please connect your wallet first')
+      return
+    }
+
+    // Validate upline ID
+    const uplineIdValue = uplineId.trim()
+    if (!uplineIdValue) {
+      toast.error('Please enter a valid upline ID')
+      return
+    }
+
+    try {
+
+      toast.loading('Validating registration...')
+      // Normalize wallet address to lowercase for consistency
+      const normalizedWalletAddress = account.toLowerCase()
+
+      // Call backend API to register user in database
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api'
+      const response = await fetch(`${API_URL}/auth/register-user`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          walletAddress: normalizedWalletAddress,
+          uplineId: uplineIdValue
+        })
+      })
+
+      const data = await response.json()
+
+      toast.dismiss()
+
+      if (!response.ok || !data.canRegister) {
+        toast.error(data.reason || 'Registration validation failed')
+        setLoading(prev => ({ ...prev, isBackendRegistering: false }))
+        return
+      }
+
+      // Store user ID from backend
+      setDbUserId(data.user.id)
+
+      toast.success('✅ Validation successful! Now approve tokens.')
+      
+      // Move to next step
+      setRegisterStep({
+        backendRegistration: false,
+        tokenApproval: true,
+        blockchainRegistration: false
+      })
+
+    } catch (error: any) {
+      console.error('Backend registration error:', error)
+      toast.dismiss()
+      toast.error('Failed to connect to backend: ' + (error.message || 'Network error'))
+      throw new Error('Backend registration error:', error.message);
+    }
+  }
+
   const handleApprove = async () => {
     if (!tokenContract || !contract || !provider) {
       toast.error('Contract not initialized')
@@ -47,6 +123,7 @@ export default function RegistrationPage() {
 
     try {
       setLoading(prev => ({ ...prev, isApproving: true }))
+      await handleBackendRegistration();
       
       // Check if contract is deployed
       const contractAddress = await contract.getAddress()
@@ -55,15 +132,6 @@ export default function RegistrationPage() {
       const blockNumber = await provider.getBlockNumber()
       const expectedChainId = BigInt(1337) // Hardhat local network (matches hardhat.config.js)
 
-      console.log("=== Contract Deployment Verification ===")
-      console.log("Contract Address:", contractAddress)
-      console.log("Contract Code:", contractCode === '0x' ? '❌ EMPTY (Not deployed)' : `✅ DEPLOYED (${contractCode.length} bytes)`)
-      console.log("Network:", network.name, `(Chain ID: ${network.chainId})`)
-      console.log("Expected Chain ID:", expectedChainId.toString())
-      console.log("Current Block:", blockNumber)
-      console.log("Expected Address (from .env):", process.env.NEXT_PUBLIC_CONTRACT_ADDRESS)
-      console.log("========================================")
-      
       // Check if user is on the wrong network
       if (network.chainId !== expectedChainId) {
         toast.dismiss()
@@ -142,8 +210,13 @@ export default function RegistrationPage() {
       await tx.wait()
       
       toast.dismiss()
-      toast.success('✅ Approval successful! Now you can register.')
+      toast.success('✅ Approval successful! Now register on blockchain.')
       setLoading(prev => ({ ...prev, isApproving: false }))
+      setRegisterStep({
+        backendRegistration: false,
+        tokenApproval: false,
+        blockchainRegistration: true
+      })
     } catch (error: any) {
       console.error('Approval error:', error)
       toast.dismiss()
@@ -167,218 +240,148 @@ export default function RegistrationPage() {
       }
        
       setLoading(prev => ({ ...prev, isApproving: false }))
+      setRegisterStep({
+        backendRegistration: true,
+        tokenApproval: true,
+        blockchainRegistration: false
+      })
     }
   }
 
-  const handleRegistration = async () => {
+  const handleBlockchainRegistration = async () => {
     if (!contract || !tokenContract || !account || !provider) {
       toast.error('Contract not initialized')
       return
     }
 
-    // Validate upline ID
-    const uplineIdNum = parseInt(uplineId, 10) || 1
-    if (isNaN(uplineIdNum) || uplineIdNum < 1) {
-      toast.error('Please enter a valid upline ID (must be 1 or greater)')
+    if (!dbUserId) {
+      toast.error('Please complete backend registration first')
       return
     }
 
     try {
-      setLoading(prev => ({ ...prev, isRegistrationLoading: true }))
+      setLoading(prev => ({ ...prev, isBlockchainRegistering: true }))
 
       // Check if contract is deployed
       const contractAddress = await contract.getAddress()
       const contractCode = await provider.getCode(contractAddress)
       const network = await provider.getNetwork()
-      const expectedChainId = BigInt(1337) // Hardhat local network (matches hardhat.config.js)
+      const expectedChainId = BigInt(1337) // Hardhat local network
       
-      console.log("=== Registration: Contract Check ===")
-      console.log("Contract Address:", contractAddress)
-      console.log("Contract Code:", contractCode === '0x' ? '❌ EMPTY' : '✅ DEPLOYED')
-      console.log("Network:", network.name, `(Chain ID: ${network.chainId})`)
-      console.log("Expected Chain ID:", expectedChainId.toString())
-      console.log("====================================")
-      
-      // Check if user is on the wrong network
+            // Check network
       if (network.chainId !== expectedChainId) {
-        // Check if Hardhat node is running
         const isHardhatRunning = await checkHardhatNodeRunning()
         if (!isHardhatRunning) {
           toast.error(
             `❌ Hardhat node is not running! Please start it first: cd Contract && npx hardhat node`,
             { duration: 10000 }
           )
-          setLoading(prev => ({ ...prev, isRegistrationLoading: false }))
+          setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
           return
         }
 
-        // Try to automatically switch network
         try {
           toast.loading('Switching to Hardhat Local network...')
           await switchToHardhatNetwork()
           toast.dismiss()
           toast.success('✅ Switched to Hardhat Local network! Please try again.')
-          setLoading(prev => ({ ...prev, isRegistrationLoading: false }))
-          setTimeout(() => {
-            window.location.reload()
-          }, 1000)
+          setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
+          setTimeout(() => window.location.reload(), 1000)
           return
         } catch (switchError: any) {
           toast.error(
-            `Wrong Network! Please switch to Hardhat Local (Chain ID: 1337) in MetaMask.\n\nError: ${switchError.message}`,
+            `Wrong Network! Please switch to Hardhat Local (Chain ID: 1337) in MetaMask.`,
             { duration: 10000 }
           )
-          setLoading(prev => ({ ...prev, isRegistrationLoading: false }))
+          setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
           return
         }
       }
       
       if (contractCode === '0x' || !contractCode) {
         toast.error(
-          'Contract not deployed! Please deploy the contract first. See the error message from "Approve Tokens" for instructions.',
+          'Contract not deployed! Please deploy the contract first.',
           { duration: 6000 }
         )
-        setLoading(prev => ({ ...prev, isRegistrationLoading: false }))
+        setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
         return
       }
 
-      // Check if already registered
-      const userInfo = await contract.getUserInfo(account)
-      if (userInfo.isActive) {
-        toast.error('You are already registered!')
-        setLoading(prev => ({ ...prev, isRegistrationLoading: false }))
-        return
-      }
-
-      // Convert upline ID to address
-      let referrerAddress: string
-      try {
-        referrerAddress = await contract.idToAddress(uplineIdNum) 
-        console.log("referrerAddress", referrerAddress)
-        // Check if address is valid (not zero address)
-        if (!referrerAddress || referrerAddress === ethers.ZeroAddress) {
-          toast.error(`Upline ID ${uplineId} does not exist or is invalid`)
-          setLoading(prev => ({ ...prev, isRegistrationLoading: false }))
-          return
-        }
-      } catch (error: any) {
-        toast.error(`Invalid upline ID: ${error.reason || error.message}`)
-        setLoading(prev => ({ ...prev, isRegistrationLoading: false }))
-        return
-      }
-
-      // Check if referrer is active
-      try {
-        const referrerInfo = await contract.getUserInfo(referrerAddress)
-        if (!referrerInfo.isActive) {
-          toast.error('Upline is not registered or inactive')
-          setLoading(prev => ({ ...prev, isRegistrationLoading: false }))
-          return
-        }
-      } catch (error: any) {
-        toast.error('Failed to verify upline status')
-        setLoading(prev => ({ ...prev, isRegistrationLoading: false }))
-        return
-      }
-
-      // Check if user is trying to refer themselves
-      if (referrerAddress.toLowerCase() === account.toLowerCase()) {
-        toast.error('Cannot refer yourself')
-        setLoading(prev => ({ ...prev, isRegistrationLoading: false }))
+      // Check if already registered on blockchain
+      const isRegistered = await contract.registered(account)
+      if (isRegistered) {
+        toast.error('You are already registered on blockchain!')
+        setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
         return
       }
 
       // Check allowance and balance
       const entryPrice = await contract.entryPrice()
-      const allowance = await tokenContract.allowance(account, await contract.getAddress())
+      const allowance = await tokenContract.allowance(account, contractAddress)
       const balance = await tokenContract.balanceOf(account)
       const tokenDecimals = await tokenContract.decimals()
-      const contractTokenDecimals = await contract.tokenDecimals()
-      
-      console.log("=== Token Balance Check ===")
-      console.log("Account:", account)
-      console.log("Entry Price (raw):", entryPrice.toString())
-      console.log("Balance (raw):", balance.toString())
-      console.log("Allowance (raw):", allowance.toString())
-      console.log("Token Decimals (from token contract):", tokenDecimals)
-      console.log("Token Decimals (from MLM contract):", contractTokenDecimals)
-      console.log("Required (Entry Price):", ethers.formatUnits(entryPrice, tokenDecimals), "tokens")
-      console.log("Your Balance:", ethers.formatUnits(balance, tokenDecimals), "tokens")
-      console.log("Allowance:", ethers.formatUnits(allowance, tokenDecimals), "tokens")
-      console.log("Balance >= Entry Price?", balance >= entryPrice)
-      console.log("===========================")
+
       
       if (allowance < entryPrice) {
-        toast.error('Please approve tokens first. Click "Approve Tokens" button above.')
-        setLoading(prev => ({ ...prev, isRegistrationLoading: false }))
+        toast.error('Please approve tokens first.')
+        setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
         return
       }
       
       if (balance < entryPrice) {
         const required = ethers.formatUnits(entryPrice, tokenDecimals)
         const current = ethers.formatUnits(balance, tokenDecimals)
-        
-        // Check if this is a test account without tokens
-        const isZeroBalance = balance === BigInt(0)
-        
-        const errorMessage = isZeroBalance
-          ? `❌ No tokens in your account!\n\n` +
-            `Your account (${account.substring(0, 6)}...${account.substring(38)}) has 0 tokens.\n\n` +
-            `💡 Solution:\n` +
-            `1. Make sure you're using the deployer account (account #0)\n` +
-            `2. Or transfer tokens from the deployer account to your account\n` +
-            `3. Check the Hardhat node output for test account private keys\n\n` +
-            `Required: ${required} tokens\n` +
-            `Your Balance: ${current} tokens`
-          : `❌ Insufficient token balance!\n\n` +
-            `Required: ${required} tokens\n` +
-            `Your Balance: ${current} tokens\n\n` +
-            `Please get more tokens to register.`
-        
-        toast.error(errorMessage, { duration: 20000 })
-        setLoading(prev => ({ ...prev, isRegistrationLoading: false }))
+        toast.error(
+          `❌ Insufficient balance!\n\nRequired: ${required} tokens\nYour Balance: ${current} tokens`,
+          { duration: 15000 }
+        )
+        setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
         return
       }
 
-      // Register
-      toast.loading('Registering... This may take a few moments.')
-      const tx = await contract.register(referrerAddress)
-      await tx.wait()
+      // Register on blockchain
+      toast.loading('Registering on blockchain... This may take a few moments.')
+      
+      // Call contract.register(userAddress, amount)
+      const tx = await contract.register(account, entryPrice)
+      const receipt = await tx.wait()
+      
+      console.log("✅ Registration tx:", receipt.hash)
       
       toast.dismiss()
-      toast.success('🎉 Registration successful!')
-      setLoading(prev => ({ ...prev, isRegistrationLoading: false }))
+      toast.success('🎉 Blockchain registration successful! Backend will process your registration.')
       
-      // Reload page after 2 seconds to update UI
+      // Store user info in localStorage for login
+      localStorage.setItem('crypto_mlm_user', JSON.stringify({
+        id: dbUserId,
+        walletAddress: account,
+        registeredAt: new Date().toISOString()
+      }))
+      
+      setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
+      
+      // Redirect to dashboard after 2 seconds
       setTimeout(() => {
-        window.location.reload()
+        router.push('/dashboard')
       }, 2000)
+
     } catch (error: any) {
-      console.error('Registration error:', error)
+      console.error('Blockchain registration error:', error)
       toast.dismiss()
       
-      // Provide more helpful error messages
       const errorMessage = error.reason || error.message || 'Unknown error'
       
-      if (errorMessage.includes('transfer amount exceeds balance') || 
-          errorMessage.includes('ERC20: transfer amount exceeds balance')) {
-        toast.error(
-          `❌ Insufficient Token Balance!\n\n` +
-          `You don't have enough tokens to register.\n` +
-          `Please check your token balance and get more tokens.`,
-          { duration: 15000 }
-        )
-      } else if (errorMessage.includes('allowance')) {
-        toast.error(
-          `❌ Insufficient Allowance!\n\n` +
-          `Please approve tokens first by clicking "Approve Tokens" button.`,
-          { duration: 10000 }
-        )
+      if (errorMessage.includes('Already registered')) {
+        toast.error('You are already registered on blockchain!')
+      } else if (errorMessage.includes('transfer amount exceeds balance')) {
+        toast.error('Insufficient token balance!')
+      } else if (errorMessage.includes('Insufficient amount')) {
+        toast.error('Insufficient token amount for registration!')
       } else {
         toast.error('❌ Registration failed: ' + errorMessage)
       }
       
-      setLoading(prev => ({ ...prev, isRegistrationLoading: false }))
+      setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
     }
   }
 
@@ -387,7 +390,7 @@ export default function RegistrationPage() {
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12">
 
       <div className="max-w-6xl w-full">
-        <div className="grid md:grid-cols-2 gap-8 md:gap-12">
+        <div className="grid md:grid-cols-1 gap-8 md:gap-12">
           {/* Left Section - Automatic Registration */}
           <div className="gradient-card hover:scale-105 transition-transform duration-300">
             <div className="gradient-card-inner text-center p-8 md:p-12">
@@ -421,12 +424,13 @@ export default function RegistrationPage() {
               </div>
 
               <div className="space-y-4">
+                {/* Step 1: Approve Tokens */}
                 <button
                   onClick={handleApprove}
-                  disabled={loading.isApproving || loading.isRegistrationLoading}
+                  disabled={loading.isApproving || !registerStep.tokenApproval || loading.isBackendRegistering}
                   className="flex items-center justify-center space-x-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 disabled:from-gray-500 disabled:to-gray-600 disabled:cursor-not-allowed text-white px-8 py-4 rounded-lg transition-all w-full text-lg font-bold shadow-lg uppercase"
                 >
-                  {loading.isApproving ? (
+                  {(loading.isApproving || loading.isBackendRegistering) ? (
                     <>
                       <FaSpinner className="animate-spin" />
                       <span>APPROVING TOKENS...</span>
@@ -436,52 +440,21 @@ export default function RegistrationPage() {
                   )}
                 </button>
 
+                {/* Step 1: Blockchain Registration */}
                 <button
-                  onClick={handleRegistration}
-                  disabled={loading.isRegistrationLoading || loading.isApproving}
+                  onClick={handleBlockchainRegistration}
+                  disabled={loading.isBlockchainRegistering || !registerStep.blockchainRegistration}
                   className="flex items-center justify-center space-x-3 bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 disabled:from-gray-500 disabled:to-gray-600 disabled:cursor-not-allowed text-white px-8 py-4 rounded-lg transition-all w-full text-lg font-bold shadow-lg uppercase"
                 >
-                  {loading.isRegistrationLoading ? (
+                  {loading.isBlockchainRegistering ? (
                     <>
                       <FaSpinner className="animate-spin" />
-                      <span>REGISTERING...</span>
+                      <span>REGISTERING ON BLOCKCHAIN...</span>
                     </>
                   ) : (
-                    <span>2. AUTOMATIC REGISTRATION</span>
+                    <span>2. REGISTER ON BLOCKCHAIN</span>
                   )}
                 </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Section - Instructions */}
-          <div className="gradient-card hover:scale-105 transition-transform duration-300">
-            <div className="gradient-card-inner text-center p-8 md:p-12 flex flex-col justify-center">
-              <h2 className="text-3xl md:text-4xl font-bold text-white mb-12">
-                Instructions
-              </h2>
-              
-              <div className="space-y-8">
-                <a
-                  href="#registration-phone"
-                  className="block text-white hover:text-blue-400 text-2xl font-semibold underline transition-colors"
-                >
-                  "Registration by phone"
-                </a>
-                
-                <a
-                  href="#registration-pc"
-                  className="block text-white hover:text-blue-400 text-2xl font-semibold underline transition-colors"
-                >
-                  "Registration with a PC"
-                </a>
-                
-                <a
-                  href="#register-manually"
-                  className="block text-white hover:text-blue-400 text-2xl font-semibold underline transition-colors"
-                >
-                  "Register manually"
-                </a>
               </div>
             </div>
           </div>
