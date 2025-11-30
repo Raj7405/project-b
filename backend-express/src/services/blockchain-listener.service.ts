@@ -6,6 +6,58 @@ import { processRegistrationPayout, processRetopupPayout } from './payout-distri
 
 let isListening = false;
 let lastProcessedBlock = BigInt(0);
+let consecutiveErrors = 0;
+let backoffDelay = 1000; 
+let currentEventTypeIndex = 0; 
+
+const MAX_BLOCKS_PER_QUERY = BigInt(process.env.MAX_BLOCKS_PER_QUERY || '50'); 
+const DELAY_BETWEEN_CHUNKS = parseInt(process.env.DELAY_BETWEEN_CHUNKS || '5000'); 
+const MAX_BLOCKS_BEHIND = BigInt(process.env.MAX_BLOCKS_BEHIND || '1000'); 
+const MAX_RETRIES = 2; 
+const PROCESS_ONE_EVENT_TYPE_PER_CYCLE = process.env.PROCESS_ONE_EVENT_TYPE_PER_CYCLE !== 'false'; 
+
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const isRateLimitError = (error: any): boolean => {
+  return (
+    error?.code === -32005 ||
+    error?.message?.includes('limit exceeded') ||
+    error?.message?.includes('rate limit') ||
+    error?.message?.includes('too many requests')
+  );
+};
+
+const processEventTypeWithRetry = async (
+  contract: ethers.Contract,
+  eventProcessor: (contract: ethers.Contract, fromBlock: bigint, toBlock: bigint) => Promise<void>,
+  fromBlock: bigint,
+  toBlock: bigint,
+  eventName: string
+): Promise<boolean> => {
+  let retries = 0;
+  let currentDelay = 2000; // Start with 2 seconds
+
+  while (retries < MAX_RETRIES) {
+    try {
+      await eventProcessor(contract, fromBlock, toBlock);
+      return true;
+    } catch (error: any) {
+      if (isRateLimitError(error)) {
+        retries++;
+        if (retries >= MAX_RETRIES) {
+          return false;
+        }
+        console.log(`   ⏳ Rate limit for ${eventName}, waiting ${currentDelay}ms (retry ${retries}/${MAX_RETRIES})...`);
+        await wait(currentDelay);
+        currentDelay *= 2; 
+      } else {
+        console.error(`   ❌ Error processing ${eventName}:`, error.message || error);
+        return false;
+      }
+    }
+  }
+  return false;
+};
 
 export const startBlockchainListener = async () => {
   if (isListening) {
@@ -31,6 +83,7 @@ export const startBlockchainListener = async () => {
     }
 
     console.log(`📍 Starting from block: ${lastProcessedBlock}`);
+    console.log(`⚙️  Configuration: MAX_BLOCKS_PER_QUERY=${MAX_BLOCKS_PER_QUERY}, DELAY=${DELAY_BETWEEN_CHUNKS}ms`);
 
     isListening = true;
     startPolling();
@@ -43,7 +96,11 @@ export const startBlockchainListener = async () => {
 };
 
 const startPolling = async () => {
-  const pollingInterval = parseInt(process.env.POLLING_INTERVAL || '5000');
+  const pollingInterval = parseInt(process.env.POLLING_INTERVAL || '15000');
+
+  processEvents().catch(error => {
+    console.error('❌ Error in initial processEvents:', error);
+  });
 
   setInterval(async () => {
     try {
@@ -68,24 +125,117 @@ const processEvents = async () => {
       return;
     }
 
-    console.log(`📦 Processing blocks ${lastProcessedBlock} to ${currentBlockBigInt}`);
+    const fromBlock = lastProcessedBlock === BigInt(0) ? lastProcessedBlock : lastProcessedBlock + BigInt(1);
+    const totalBlocks = currentBlockBigInt - fromBlock + BigInt(1);
 
-    const fromBlock = lastProcessedBlock === BigInt(0) ? BigInt(0) : lastProcessedBlock + BigInt(1);
-    await processRegistrationAcceptedEvents(contract, fromBlock, currentBlockBigInt);
-    await processRetopupAcceptedEvents(contract, fromBlock, currentBlockBigInt);
-    await processPayoutExecutedEvents(contract, fromBlock, currentBlockBigInt);
-    await processBatchPayoutCompletedEvents(contract, fromBlock, currentBlockBigInt);
+    if (totalBlocks > MAX_BLOCKS_BEHIND) {
+      console.log(`⚠️  Too far behind (${totalBlocks} blocks). Skipping to recent blocks (${MAX_BLOCKS_BEHIND} blocks back)...`);
+      const newStartBlock = currentBlockBigInt - MAX_BLOCKS_BEHIND;
+      lastProcessedBlock = newStartBlock;
+      await prisma.blockchainSync.updateMany({
+        data: { lastBlock: lastProcessedBlock }
+      });
+      console.log(`📍 Reset to block: ${lastProcessedBlock}`);
+      return;
+    }
 
-    lastProcessedBlock = currentBlockBigInt;
+    const chunkToBlock = fromBlock + MAX_BLOCKS_PER_QUERY - BigInt(1);
+    const actualToBlock = chunkToBlock > currentBlockBigInt ? currentBlockBigInt : chunkToBlock;
+    const chunkSize = Number(actualToBlock - fromBlock + BigInt(1));
     
-    await ensureDatabaseConnection();
-    await prisma.blockchainSync.updateMany({
-      data: { lastBlock: lastProcessedBlock }
-    });
-
-    console.log(`✅ Processed up to block ${lastProcessedBlock}`);
+    if (PROCESS_ONE_EVENT_TYPE_PER_CYCLE) {
+      const eventTypes = [
+        { name: 'RegistrationAccepted', processor: processRegistrationAcceptedEvents },
+        { name: 'RetopupAccepted', processor: processRetopupAcceptedEvents },
+        { name: 'PayoutExecuted', processor: processPayoutExecutedEvents },
+        { name: 'BatchPayoutCompleted', processor: processBatchPayoutCompletedEvents }
+      ];
+      
+      const currentEventType = eventTypes[currentEventTypeIndex % eventTypes.length];
+      console.log(`📦 Processing ${currentEventType.name} for blocks ${fromBlock} to ${actualToBlock} (${chunkSize} blocks)`);
+      
+      try {
+        const success = await processEventTypeWithRetry(
+          contract,
+          currentEventType.processor,
+          fromBlock,
+          actualToBlock,
+          currentEventType.name
+        );
+        
+        if (success) {
+          console.log(`   ✅ ${currentEventType.name} processed successfully`);
+          consecutiveErrors = 0;
+          backoffDelay = 1000;
+        } else {
+          console.log(`   ⚠️  ${currentEventType.name} failed, will retry next cycle`);
+          consecutiveErrors++;
+          backoffDelay = Math.min(backoffDelay * 2, 30000);
+        }
+        
+        currentEventTypeIndex++;
+        
+        if (currentEventTypeIndex % eventTypes.length === 0) {
+          lastProcessedBlock = actualToBlock;
+          await ensureDatabaseConnection();
+          await prisma.blockchainSync.updateMany({
+            data: { lastBlock: lastProcessedBlock }
+          });
+          console.log(`✅ Completed all event types for blocks up to ${lastProcessedBlock}`);
+        }
+        
+      } catch (error: any) {
+        if (isRateLimitError(error)) {
+          console.log(`   ⚠️  Rate limit hit. Waiting ${backoffDelay}ms before next cycle...`);
+          await wait(backoffDelay);
+          consecutiveErrors++;
+          backoffDelay = Math.min(backoffDelay * 2, 30000);
+        } else {
+          console.error(`   ❌ Error processing ${currentEventType.name}:`, error.message || error);
+          currentEventTypeIndex++;
+        }
+      }
+    } else {
+      console.log(`📦 Processing blocks ${fromBlock} to ${actualToBlock} (${chunkSize} blocks)`);
+      
+      const success1 = await processEventTypeWithRetry(contract, processRegistrationAcceptedEvents, fromBlock, actualToBlock, 'RegistrationAccepted');
+      await wait(1000);
+      
+      const success2 = await processEventTypeWithRetry(contract, processRetopupAcceptedEvents, fromBlock, actualToBlock, 'RetopupAccepted');
+      await wait(1000);
+      
+      const success3 = await processEventTypeWithRetry(contract, processPayoutExecutedEvents, fromBlock, actualToBlock, 'PayoutExecuted');
+      await wait(1000);
+      
+      const success4 = await processEventTypeWithRetry(contract, processBatchPayoutCompletedEvents, fromBlock, actualToBlock, 'BatchPayoutCompleted');
+      
+      if (success1 && success2 && success3 && success4) {
+        lastProcessedBlock = actualToBlock;
+        await ensureDatabaseConnection();
+        await prisma.blockchainSync.updateMany({
+          data: { lastBlock: lastProcessedBlock }
+        });
+        console.log(`✅ Processed up to block ${lastProcessedBlock}`);
+        consecutiveErrors = 0;
+        backoffDelay = 1000;
+      } else {
+        console.log(`⚠️  Some event types failed, will retry next cycle`);
+      }
+    }
   } catch (error: any) {
+    consecutiveErrors++;
+    backoffDelay = Math.min(backoffDelay * 2, 30000);
+    
     console.error('Error in processEvents:', error.message || error);
+    
+    if (isRateLimitError(error)) {
+      console.error(`\n💡 Rate limit exceeded. Waiting ${backoffDelay}ms before next attempt...`);
+      console.error('   Consider:');
+      console.error(`   1. Reduce MAX_BLOCKS_PER_QUERY in .env (current: ${MAX_BLOCKS_PER_QUERY})`);
+      console.error(`   2. Increase DELAY_BETWEEN_CHUNKS (current: ${DELAY_BETWEEN_CHUNKS}ms)`);
+      console.error('   3. Use a premium RPC provider with higher limits');
+      await wait(backoffDelay);
+    }
   }
 };
 
