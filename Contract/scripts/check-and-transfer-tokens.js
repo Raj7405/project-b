@@ -68,7 +68,7 @@ async function main() {
     const minBalance = hre.ethers.parseUnits("100", decimals);
 
     console.log("📤 Transferring tokens to test accounts...\n");
-    const accountsToFund = Math.min(5, accounts.length - 1);
+    const accountsToFund = Math.min(20, accounts.length - 1);
     
     for (let i = 1; i <= accountsToFund; i++) {
       const account = accounts[i];

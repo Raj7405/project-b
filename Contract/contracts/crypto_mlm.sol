@@ -163,6 +163,7 @@ contract CryptoMLMTransactions is Ownable, ReentrancyGuard {
 
         emit RegistrationAccepted(user, msg.sender, amount);
     }
+ 
 
     function retopup(address user, uint256 amount) external onlyBackend nonReentrant {
         require(user != address(0), "User required");
