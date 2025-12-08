@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { startBlockchainListener } from './services/blockchain-listener.service';
 import authRoutes from './routes/auth.routes';
+import { connectRedis } from './redis/connection';
 
 dotenv.config();
 
@@ -37,7 +38,17 @@ app.listen(PORT, async () => {
   console.log(`📡 Environment: ${process.env.NODE_ENV}`);
   console.log(`🔗 BSC RPC: ${process.env.BSC_RPC_URL}`);
   console.log(`📝 Contract: ${process.env.CONTRACT_ADDRESS}`);
-  
+
+  // Connect to Redis (non-blocking, graceful failure)
+  try {
+    const redisConnected = await connectRedis();
+    if (!redisConnected) {
+      console.warn('⚠️  Server started without Redis connection');
+    }
+  } catch (error) {
+    console.error('❌ Redis connection error (continuing without Redis):', error);
+  }
+
   // Start blockchain event listener
   try {
     await startBlockchainListener();
