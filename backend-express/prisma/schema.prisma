@@ -17,9 +17,9 @@ model User {
   sponsorCount        Int      @default(0) @map("sponsor_count")
   hasReTopup          Boolean  @default(false) @map("has_retopup")
   hasAutoPoolEntry    Boolean  @default(false) @map("has_auto_pool_entry")
-  totalDirectIncome   Decimal  @default(0) @map("total_direct_income") @db.Decimal(20, 18)
-  totalLevelIncome    Decimal  @default(0) @map("total_level_income") @db.Decimal(20, 18)
-  totalAutoPoolIncome Decimal  @default(0) @map("total_auto_pool_income") @db.Decimal(20, 18)
+  totalDirectIncome   Decimal  @default(0) @map("total_direct_income") @db.Decimal(65, 18)
+  totalLevelIncome    Decimal  @default(0) @map("total_level_income") @db.Decimal(65, 18)
+  totalAutoPoolIncome Decimal  @default(0) @map("total_auto_pool_income") @db.Decimal(65, 18)
   paymentStatus       PaymentStatus   @default(PENDING) @map("payment_status")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
@@ -27,6 +27,8 @@ model User {
   transactions Transaction[]
   parent       User?         @relation("UserHierarchy", fields: [parentId], references: [id])
   children     User[]        @relation("UserHierarchy")
+  autoPoolNode AutoPoolNode?
+  autoPoolReservedIncome AutoPoolReservedIncome[]
 
   @@map("users")
 }
@@ -71,4 +73,55 @@ model BlockchainSync {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("blockchain_sync")
+}
+
+model AutoPoolNode {
+  id            String   @id @default(uuid())
+  userId        String   @unique                    
+  parentNodeId  String?                              
+  position      String                               
+  level         Int                                  
+  walletAddress String                               
+  createdAt     DateTime @default(now())
+  isComplete    Boolean   @default(false)   @map("is_complete")
+  poolLevel         Int       @map("pool_level")
+  treeNumber        Int?      @map("tree_number")
+  completedAt       DateTime? @map("completed_at")
+  
+  user          User     @relation(fields: [userId], references: [id])
+  parent        AutoPoolNode? @relation("TreeHierarchy", fields: [parentNodeId], references: [id])
+  children      AutoPoolNode[] @relation("TreeHierarchy")
+  
+  @@index([level])
+  @@index([parentNodeId])
+  @@map("auto_pool_nodes")
+}
+
+model AutoPoolReservedIncome {
+  id            String   @id @default(uuid())
+  userId        String
+  poolLevel     Int      
+  amount        Decimal  @db.Decimal(65, 18)
+  createdAt     DateTime @default(now())
+  
+  user          User     @relation(fields: [userId], references: [id])
+  
+  @@unique([userId, poolLevel])
+  @@index([poolLevel])
+  @@map("auto_pool_reserved_income")
+}
+
+model AutoPoolTree {
+  id                String   @id @default(uuid())
+  poolLevel         Int
+  treeNumber        Int      
+  isComplete        Boolean   @default(false)
+  completedNodesCount Int     @default(0)
+  lastFourNodes     String[] 
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  
+  @@unique([poolLevel, treeNumber])
+  @@index([poolLevel])
+  @@map("auto_pool_trees")
 }

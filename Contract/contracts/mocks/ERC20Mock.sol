@@ -14,7 +14,6 @@ contract ERC20Mock is ERC20 {
         _mint(initialAccount, initialBalance);
     }
 
-    // Helper function to mint more tokens for testing
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
