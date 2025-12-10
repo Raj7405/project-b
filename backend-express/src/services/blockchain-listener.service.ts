@@ -256,7 +256,8 @@ const processRegistrationAcceptedEvents = async (
       if (!('args' in event)) continue;
 
       const [user, backendCaller, amount] = event.args as any;
-      const walletAddress = user; 
+      // Normalize wallet address to lowercase (Ethereum addresses are case-insensitive)
+      const walletAddress = user.toLowerCase(); 
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
       console.log(`🔍 Processing RegistrationAccepted event for: ${walletAddress}`);
@@ -266,7 +267,7 @@ const processRegistrationAcceptedEvents = async (
       });
 
       if (!dbUser) {
-        console.log(`⚠️  User not found in database: ${walletAddress}, skipping registration event processing`);
+        console.log(`⚠️ User not found in database: ${walletAddress}, skipping registration event processing`);
         console.log(`💡 Make sure user was created in database before contract registration`);
         continue; 
       }
@@ -315,7 +316,8 @@ const processRetopupAcceptedEvents = async (
     try {
       if (!('args' in event)) continue;
       const [user, backendCaller, amount, totalRetopups] = event.args as any;
-      const walletAddress = user;
+      // Normalize wallet address to lowercase (Ethereum addresses are case-insensitive)
+      const walletAddress = user.toLowerCase();
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
       const dbUser = await prisma.user.findUnique({
@@ -382,7 +384,8 @@ const processPayoutExecutedEvents = async (
     try {
       if (!('args' in event)) continue;
       const [user, amount, rewardType] = event.args as any;
-      const walletAddress = user;
+      // Normalize wallet address to lowercase (Ethereum addresses are case-insensitive)
+      const walletAddress = user.toLowerCase();
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
       const dbUser = await prisma.user.findUnique({

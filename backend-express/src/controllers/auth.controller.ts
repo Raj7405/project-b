@@ -13,7 +13,10 @@ if (!RETOPUP_PRICE) {
 
 export const registerUser = async (req: Request, res: Response) => {
     try {
-        const { walletAddress, uplineId } = req.body;
+        let { walletAddress, uplineId } = req.body;
+
+        // Normalize wallet address to lowercase (Ethereum addresses are case-insensitive)
+        walletAddress = walletAddress.toLowerCase();
 
         const existingUser = await prisma.user.findUnique({
             where: {
@@ -77,16 +80,25 @@ export const registerUser = async (req: Request, res: Response) => {
 
 export const getRegisterUser = async (req: Request, res: Response) => {
     try {
-        const { walletAddress, uplineId } = req.body;
+        let walletAddress = req.query.walletAddress as string;
+
+        if(!walletAddress) {
+            return res.status(400).json({ error: 'Wallet address is required' });
+        }
+
+        // Clean wallet address: remove quotes, trim whitespace, normalize to lowercase
+        walletAddress = walletAddress.replace(/['"]/g, '').trim().toLowerCase();
+        
         const user = await prisma.user.findUnique({
             where: {
                 walletAddress: walletAddress,
-                parentId:uplineId
             }
         });
+
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
+
         res.status(200).json(user);
     } catch (error) {
         console.error('Error getting register user:', error);
