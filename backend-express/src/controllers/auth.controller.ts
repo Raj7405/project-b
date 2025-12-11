@@ -5,9 +5,9 @@ import { Contract } from 'ethers';
 
 import { ethers } from 'ethers';
 import { getContract, getContractWithSigner, getTokenContract } from '../config/blockchain';
-import { generateTokens, getTokenExpiry } from '../services/auth.service';
+import { generateTokens, getTokenExpiry, verifyToken } from '../services/auth.service';
 
-const RETOPUP_PRICE = process.env.RETOPUP_PRICE;
+const RETOPUP_PRICE = process.env.RETOPUP_PRICE || '40';
 if (!RETOPUP_PRICE) {
     throw new Error('RETOPUP_PRICE not set in environment');
 }
@@ -86,34 +86,164 @@ export const registerUser = async (req: Request, res: Response) => {
 
 export const getRegisterUser = async (req: Request, res: Response) => {
     try {
-        let walletAddress = req.query.walletAddress as string;
+        const authHeader = req.headers.authorization;
+        let walletAddress: string | undefined;
 
-        if(!walletAddress) {
-            return res.status(400).json({ error: 'Wallet address is required' });
+        if (authHeader?.startsWith('Bearer ')) {
+            try {
+                const token = authHeader.substring(7);
+                const payload = verifyToken(token);
+                
+                if (payload.type === 'access') {
+                    const user = await prisma.user.findUnique({
+                        where: { id: payload.userId }
+                    });
+
+                    if (!user) {
+                        return res.status(404).json({ 
+                            error: 'User not found',
+                            isAuthorized: false 
+                        });
+                    }
+
+                    const now = Math.floor(Date.now() / 1000);
+                    const timeUntilExpiry = (payload.exp || 0) - now;
+                    
+                    let accessToken = token;
+                    let refreshToken = req.headers['x-refresh-token'] as string;
+                    
+                    if (timeUntilExpiry < 300) { 
+                        const tokens = generateTokens(user.id, user.walletAddress);
+                        accessToken = tokens.accessToken;
+                        refreshToken = tokens.refreshToken;
+                    }
+
+                    return res.status(200).json({
+                        user,
+                        accessToken,
+                        refreshToken,
+                        expiresIn: getTokenExpiry(false),
+                        refreshExpiresIn: getTokenExpiry(true),
+                        isAuthorized: true
+                    });
+                }
+            } catch (error: any) {
+                if (error.message === 'Token has expired' || error.message === 'Invalid token') {
+                    return res.status(401).json({ 
+                        error: error.message,
+                        isAuthorized: false 
+                    });
+                }
+            }
+        }
+
+        walletAddress = req.query.walletAddress as string;
+        
+        if (!walletAddress) {
+            return res.status(400).json({ 
+                error: 'Wallet address is required or provide valid authorization token',
+                isAuthorized: false
+            });
         }
 
         walletAddress = walletAddress.replace(/['"]/g, '').trim().toLowerCase();
         
         const user = await prisma.user.findUnique({
-            where: {
-                walletAddress: walletAddress,
-            }
+            where: { walletAddress }
         });
 
         if (!user) {
-            return res.status(404).json({ error: 'User not found' });
+            return res.status(404).json({ 
+                error: 'User not found',
+                isAuthorized: false 
+            });
         }
 
-        res.status(200).json(user);
+        res.status(200).json({
+            user,
+            isAuthorized: false
+        });
     } catch (error) {
         console.error('Error getting register user:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ 
+            error: 'Internal server error',
+            isAuthorized: false 
+        });
     }
 }
 
 export const retopupUser = async(req:Request,res:Response)=>{
     try{
-        const [walletAddress] = req.body
+        const authHeader = req.headers.authorization;
+        let walletAddress: string | undefined;
+        let authorizedWalletAddress: string | undefined;
+
+        if (authHeader?.startsWith('Bearer ')) {
+            try {
+                const token = authHeader.substring(7);
+                const payload = verifyToken(token);
+                
+                if (payload.type === 'access') {
+                    authorizedWalletAddress = payload.walletAddress.toLowerCase();
+                    
+                    const authorizedUser = await prisma.user.findUnique({
+                        where: { id: payload.userId }
+                    });
+
+                    if (!authorizedUser) {
+                        return res.status(404).json({ 
+                            error: 'User not found',
+                            canRetopup: false,
+                            reason: 'User associated with token not found'
+                        });
+                    }
+
+                    walletAddress = authorizedWalletAddress;
+                }
+            } catch (error: any) {
+                if (error.message === 'Token has expired' || error.message === 'Invalid token') {
+                    return res.status(401).json({ 
+                        error: error.message,
+                        canRetopup: false,
+                        reason: 'Invalid or expired authentication token'
+                    });
+                }
+            }
+        }
+
+        if (!walletAddress) {
+            const bodyWalletAddress = Array.isArray(req.body) ? req.body[0] : req.body.walletAddress;
+            
+            if (!bodyWalletAddress) {
+                return res.status(400).json({ 
+                    error: 'Wallet address is required or provide valid authorization token',
+                    canRetopup: false,
+                    reason: 'Either provide walletAddress in body or valid Bearer token'
+                });
+            }
+
+            walletAddress = bodyWalletAddress.toLowerCase();
+        }
+
+        if (authorizedWalletAddress && req.body) {
+            const bodyWalletAddress = Array.isArray(req.body) ? req.body[0] : req.body.walletAddress;
+            if (bodyWalletAddress && bodyWalletAddress.toLowerCase() !== authorizedWalletAddress) {
+                return res.status(403).json({ 
+                    error: 'Wallet address mismatch',
+                    canRetopup: false,
+                    reason: 'Wallet address in request body does not match authenticated wallet address'
+                });
+            }
+        }
+
+        if (!walletAddress) {
+            return res.status(400).json({ 
+                error: 'Wallet address is required',
+                canRetopup: false,
+                reason: 'Wallet address must be provided'
+            });
+        }
+
         const dbUser = await prisma.user.findUnique({
             where: {
                 walletAddress: walletAddress,
