@@ -5,6 +5,7 @@ import { Contract } from 'ethers';
 
 import { ethers } from 'ethers';
 import { getContract, getContractWithSigner, getTokenContract } from '../config/blockchain';
+import { generateTokens, getTokenExpiry } from '../services/auth.service';
 
 const RETOPUP_PRICE = process.env.RETOPUP_PRICE;
 if (!RETOPUP_PRICE) {
@@ -15,7 +16,6 @@ export const registerUser = async (req: Request, res: Response) => {
     try {
         let { walletAddress, uplineId } = req.body;
 
-        // Normalize wallet address to lowercase (Ethereum addresses are case-insensitive)
         walletAddress = walletAddress.toLowerCase();
 
         const existingUser = await prisma.user.findUnique({
@@ -60,6 +60,8 @@ export const registerUser = async (req: Request, res: Response) => {
           }
         });
 
+        const { accessToken, refreshToken } = generateTokens(newUser.id, newUser.walletAddress);
+
         res.status(200).json({
             canRegister: true,
             reason: '',
@@ -69,6 +71,10 @@ export const registerUser = async (req: Request, res: Response) => {
                 parentId: newUser.parentId,
                 paymentStatus: newUser.paymentStatus
             },
+            accessToken,
+            refreshToken,
+            expiresIn: getTokenExpiry(false), 
+            refreshExpiresIn: getTokenExpiry(true), 
             message: 'User created in database. Please call contract.register() from frontend.'
         });
 
@@ -86,7 +92,6 @@ export const getRegisterUser = async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Wallet address is required' });
         }
 
-        // Clean wallet address: remove quotes, trim whitespace, normalize to lowercase
         walletAddress = walletAddress.replace(/['"]/g, '').trim().toLowerCase();
         
         const user = await prisma.user.findUnique({
