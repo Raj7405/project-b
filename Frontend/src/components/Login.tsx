@@ -18,6 +18,17 @@ export default function Login() {
   const { connectWallet, account } = useWeb3()
   const router = useRouter()
 
+  const getUserById = async(id:string)=>{
+    try{
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/get-user-by-id/${id}`)
+      const data = await response.json()
+      return data
+    }
+    catch(error){
+      console.error('Error getting user by id:', error)
+      toast.error('Error getting user by id')
+    }
+  }
   // Step 1: Retrieve wallet address from user ID
   const handleRetrieveAddress = async () => {
     try {
@@ -30,14 +41,12 @@ export default function Login() {
       }
 
       // Validate that input is a number
-      const isNumericId = /^\d+$/.test(userId.trim())
-      if (!isNumericId) {
-        toast.error('Please enter a valid numeric User ID')
-        setLoading(prev => ({ ...prev, isViewing: false }))
-        return
-      }
-
-      console.log('Looking up User ID:', userId)
+      // const isNumericId = /^\d+$/.test(userId.trim())
+      // if (!isNumericId) {
+      //   toast.error('Please enter a valid numeric User ID')
+      //   setLoading(prev => ({ ...prev, isViewing: false }))
+      //   return
+      // }
       
       // Use read-only contract to get address (no wallet connection needed)
       const { contract } = getReadOnlyContract()
@@ -49,8 +58,9 @@ export default function Login() {
       }
 
       // Get the wallet address for this ID
-      const userAddress = await contract.idToAddress(parseInt(userId))
-      console.log('Retrieved address:', userAddress)
+      // const userAddress = await contract.idToAddress(parseInt(userId))
+      const user = await getUserById(userId)
+      const userAddress = user?.walletAddress
 
       // Check if address is valid (not zero address)
       if (userAddress === '0x0000000000000000000000000000000000000000' || !userAddress) {

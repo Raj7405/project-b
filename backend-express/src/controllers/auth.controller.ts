@@ -106,6 +106,23 @@ export const getRegisterUser = async (req: Request, res: Response) => {
     }
 }
 
+export const getUserById = async(req:Request,res:Response)=>{
+    try{
+        const { id } = req.params;
+        const user = await prisma.user.findUnique({
+            where: { id: id }
+        });
+        if(!user){
+            return res.status(404).json({ error: 'User not found' });
+        }
+        res.status(200).json(user);
+    }
+    catch(error){
+        console.error('Error getting user by id:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+}
+
 export const retopupUser = async(req:Request,res:Response)=>{
     try{
         const [walletAddress] = req.body
