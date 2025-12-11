@@ -298,7 +298,11 @@ export default function ThreeCoin3D() {
         
         <Suspense fallback={null}>
           <BNBCoin />
-          <Environment preset="sunset" />
+          {/* <Environment preset="sunset" /> */}
+          {/* <Environment files="https://rawcdn.githack.com/mrdoob/three.js/master/examples/textures/equirectangular/venice_sunset_1k.hdr" /> */}
+
+          
+          
         </Suspense>
       </Canvas>
     </div>
