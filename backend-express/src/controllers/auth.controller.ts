@@ -80,11 +80,18 @@ export const registerUser = async (req: Request, res: Response) => {
 
 export const getRegisterUser = async (req: Request, res: Response) => {
     try {
-        const { walletAddress, uplineId } = req.body;
+        let walletAddress = req.query.walletAddress as string;
+
+        if(!walletAddress) {
+            return res.status(400).json({ error: 'Wallet address is required' });
+        }
+
+        // Clean wallet address: remove quotes, trim whitespace, normalize to lowercase
+        walletAddress = walletAddress.replace(/['"]/g, '').trim().toLowerCase();
+        
         const user = await prisma.user.findUnique({
             where: {
                 walletAddress: walletAddress,
-                parentId:uplineId
             }
         });
 
