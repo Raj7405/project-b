@@ -20,7 +20,7 @@ export default function Login() {
 
   const getUserById = async(id:string)=>{
     try{
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/get-user-by-id/${id}`)
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/get-user-by-id/${id}`)
       const data = await response.json()
       return data
     }
