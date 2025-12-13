@@ -10,19 +10,6 @@ interface AuthenticatedRequest extends Request {
   };
 }
 
-/**
- * Unified transaction API with filters
- * 
- * Query Parameters:
- * - type: TransactionType (optional) - Filter by transaction type
- * - page: number (optional) - Page number for pagination (default: 0)
- * - size: number (optional) - Page size for pagination (default: 20, max: 100)
- * - days: number (optional) - Filter transactions from last N days
- * - aggregate: boolean (optional) - If true, returns total income instead of list
- * - limit: number (optional) - Limit number of results (for non-paginated queries)
- * 
- * Authentication: Requires Bearer token in Authorization header
- */
 export const getTransactions = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
@@ -55,7 +42,7 @@ export const getTransactions = async (req: AuthenticatedRequest, res: Response) 
 
     const type = req.query.type as TransactionType | undefined;
     const page = parseInt(req.query.page as string) || undefined;
-    const size = Math.min(parseInt(req.query.size as string) || 20, 100); // Max 100
+    const size = Math.min(parseInt(req.query.size as string) || 20, 100);
     const days = parseInt(req.query.days as string) || undefined;
     const aggregate = req.query.aggregate === 'true' || req.query.aggregate === '1';
     const limit = parseInt(req.query.limit as string) || undefined;
