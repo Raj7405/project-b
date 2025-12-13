@@ -3,19 +3,52 @@ const API_BASE_URL = `${process.env.NEXT_PUBLIC_API_URL}/api` || 'http://localho
 
 // Auth/User API - ACTIVE ROUTES (mounted in server.ts)
 export const authApi = {
-  // GET /api/auth/get-user-by-id/:id
-  getUserById: async (userId: string | number) => {
-    const response = await fetch(`${API_BASE_URL}/auth/get-user-by-id/${userId}`);
-    if (!response.ok) throw new Error('Failed to fetch user');
-    return response.json();
+  /**
+   * Unified endpoint to get user by wallet address, user ID, or token
+   * Returns user data and tokens automatically
+   */
+  getRegisterUser: async (options: {
+    walletAddress?: string
+    userId?: string
+    accessToken?: string
+    refreshToken?: string
+  }) => {
+    const { walletAddress, userId, accessToken, refreshToken } = options
+
+    let url = `${API_BASE_URL}/auth/get-register-user`
+    const headers: HeadersInit = {}
+
+    // If tokens provided, use authenticated request
+    if (accessToken && refreshToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`
+      headers['x-refresh-token'] = refreshToken
+    }
+    // Otherwise, use query params
+    else if (walletAddress) {
+      const cleanAddress = walletAddress.replace(/['"]/g, '').trim().toLowerCase()
+      url += `?walletAddress=${cleanAddress}`
+    } else if (userId) {
+      url += `?id=${userId}`
+    } else {
+      throw new Error('Please provide walletAddress, userId, or tokens')
+    }
+
+    const response = await fetch(url, { headers })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to fetch user')
+    }
+    return response.json()
   },
 
-  // GET /api/auth/get-register-user?walletAddress=...
+  // Legacy: Get user by ID (uses unified endpoint internally)
+  getUserById: async (userId: string | number) => {
+    return authApi.getRegisterUser({ userId: String(userId) })
+  },
+
+  // Legacy: Get user by wallet (uses unified endpoint internally)
   getUserByWallet: async (walletAddress: string) => {
-    const cleanAddress = walletAddress.replace(/['"]/g, '').trim().toLowerCase();
-    const response = await fetch(`${API_BASE_URL}/auth/get-register-user?walletAddress=${cleanAddress}`);
-    if (!response.ok) throw new Error('Failed to fetch user');
-    return response.json();
+    return authApi.getRegisterUser({ walletAddress })
   },
 
   // POST /api/auth/register-user

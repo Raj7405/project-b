@@ -36,7 +36,9 @@ export default function Dashboard() {
       // Fetch user data from backend API
       let user
       try {
-        user = await authApi.getUserByWallet(account)
+        const response = await authApi.getUserByWallet(account)
+        // API returns { user, accessToken, refreshToken, ... }
+        user = response.user || response
       } catch (error: any) {
         // User not found in backend - not registered
         if (error.message.includes('Failed to fetch user')) {
@@ -47,7 +49,7 @@ export default function Dashboard() {
         throw error
       }
 
-      if (!user) {
+      if (!user || !user.id) {
         setUserData(null)
         setLoading(false)
         return
@@ -68,14 +70,14 @@ export default function Dashboard() {
 
       // Count retopup transactions (Note: transactionApi not mounted yet, so this will fail gracefully)
       let retopupTransactions = 0
-      try {
-        const transactions = await transactionApi.getUserTransactionsByType(user.id, 'RETOPUP')
-        retopupTransactions = transactions.length
-      } catch (error) {
-        console.error('Error fetching retopup count (transactionApi not mounted):', error)
-        // Fall back to hasReTopup flag - if true, assume 1 retopup
-        retopupTransactions = user.hasReTopup ? 1 : 0
-      }
+      // try {
+      //   const transactions = await transactionApi.getUserTransactionsByType(user.id, 'RETOPUP')
+      //   retopupTransactions = transactions.length
+      // } catch (error) {
+      //   console.error('Error fetching retopup count (transactionApi not mounted):', error)
+      //   // Fall back to hasReTopup flag - if true, assume 1 retopup
+      //   retopupTransactions = user.hasReTopup ? 1 : 0
+      // }
 
       // Calculate total earnings from backend data
       const totalEarnings = (
@@ -88,24 +90,26 @@ export default function Dashboard() {
       let referrerAddress = 'Company (Root)'
       if (user.parentId) {
         try {
-          const parentUser = await authApi.getUserById(user.parentId)
-          referrerAddress = parentUser.walletAddress
+          const parentResponse = await authApi.getUserById(user.parentId)
+          // API returns { user, accessToken, refreshToken, ... }
+          const parentUser = parentResponse.user || parentResponse
+          referrerAddress = parentUser?.walletAddress || 'Company (Root)'
         } catch (error) {
           console.error('Error fetching parent user:', error)
         }
       }
 
       setUserData({
-        id: user.id,
-        wallet: user.walletAddress,
+        id: user.id || '',
+        wallet: user.walletAddress || account,
         referrer: referrerAddress,
-        referralCount: user.sponsorCount.toString(),
+        referralCount: (user.sponsorCount ?? 0).toString(),
         directIncome: parseFloat(user.totalDirectIncome || '0').toFixed(2),
         poolIncome: parseFloat(user.totalAutoPoolIncome || '0').toFixed(2),
         levelIncome: parseFloat(user.totalLevelIncome || '0').toFixed(2),
         totalEarnings: totalEarnings,
         retopupCount: retopupTransactions,
-        hasReTopup: user.hasReTopup,
+        hasReTopup: user.hasReTopup || false,
       })
       
       setTokenBalance(balance)

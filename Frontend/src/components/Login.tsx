@@ -1,12 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { FaWallet, FaSearch, FaSpinner, FaCheckCircle } from 'react-icons/fa'
 import { useWeb3 } from '@/contexts/Web3Context'
+import { useAuth } from '@/contexts/AuthContext'
 import toast from 'react-hot-toast'
-import { getReadOnlyContract } from '@/utils/readOnlyContract'
 import { useRouter } from 'next/navigation'
-import { API_URL } from '@/utils/constants'
 
 export default function Login() {
   const [userId, setUserId] = useState('')
@@ -16,20 +15,10 @@ export default function Login() {
     isConnecting: false,
   })
   const { connectWallet, account, disconnectWallet } = useWeb3()
+  const { loginById, loginByWallet, user: authUser } = useAuth()
   const router = useRouter()
 
-  const getUserById = async(id:string)=>{
-    try{
-      const response = await fetch(`${API_URL}/api/auth/get-user-by-id/${id}`)
-      const data = await response.json()
-      return data
-    }
-    catch(error){
-      console.error('Error getting user by id:', error)
-      toast.error('Error getting user by id')
-    }
-  }
-  // Step 1: Retrieve wallet address from user ID
+  // Step 1: Retrieve wallet address from user ID using unified API
   const handleRetrieveAddress = async () => {
     try {
       setLoading(prev => ({ ...prev, isViewing: true }))
@@ -40,30 +29,15 @@ export default function Login() {
         return
       }
 
-      // Validate that input is a number
-      // const isNumericId = /^\d+$/.test(userId.trim())
-      // if (!isNumericId) {
-      //   toast.error('Please enter a valid numeric User ID')
-      //   setLoading(prev => ({ ...prev, isViewing: false }))
-      //   return
-      // }
+      // Use unified API to get user by ID (automatically generates tokens)
+      // loginById updates the auth context and returns user data
+      const result = await loginById(userId)
       
-      // Use read-only contract to get address (no wallet connection needed)
-      const { contract } = getReadOnlyContract()
-      
-      if (!contract) {
-        toast.error('Failed to connect to blockchain. Please try again.')
-        setLoading(prev => ({ ...prev, isViewing: false }))
-        return
-      }
-
-      // Get the wallet address for this ID
-      // const userAddress = await contract.idToAddress(parseInt(userId))
-      const user = await getUserById(userId)
-      const userAddress = user?.walletAddress
+      // Get the wallet address from the returned user
+      const userAddress = result?.user?.walletAddress
 
       // Check if address is valid (not zero address)
-      if (userAddress === '0x0000000000000000000000000000000000000000' || !userAddress) {
+      if (!userAddress || userAddress === '0x0000000000000000000000000000000000000000') {
         toast.error('User ID not found. Please check and try again.')
         setLoading(prev => ({ ...prev, isViewing: false }))
         return
@@ -104,17 +78,80 @@ export default function Login() {
     }
   }
 
-  // Verify wallet address matches after connection
+  // Track if we've already processed this account to prevent infinite loops
+  const processedAccountRef = useRef<string | null>(null)
+  const isProcessingRef = useRef(false)
+
+  // Handle automatic login when wallet connects (no expected address)
   useEffect(() => {
-    if (account && expectedAddress) {
+    if (account && !expectedAddress && loading.isConnecting && !isProcessingRef.current) {
+      // Check if we've already processed this account
+      if (processedAccountRef.current === account.toLowerCase()) {
+        return
+      }
+
+      isProcessingRef.current = true
+      processedAccountRef.current = account.toLowerCase()
+
+      // Automatic login flow - login with connected wallet
+      loginByWallet(account)
+        .then(() => {
+          setLoading(prev => ({ ...prev, isConnecting: false }))
+          toast.success('✅ Logged in successfully!')
+          setTimeout(() => {
+            router.push('/')
+          }, 1000)
+        })
+        .catch((error) => {
+          console.error('Login error:', error)
+          setLoading(prev => ({ ...prev, isConnecting: false }))
+          toast.error('Failed to complete login')
+          // Reset on error so user can try again
+          processedAccountRef.current = null
+        })
+        .finally(() => {
+          isProcessingRef.current = false
+        })
+    }
+  }, [account, expectedAddress, loading.isConnecting, loginByWallet, router])
+
+  // Track if we've already verified this account+expectedAddress combination
+  const verifiedAccountRef = useRef<string | null>(null)
+  const isVerifyingRef = useRef(false)
+
+  // Verify wallet address matches after connection (User ID login flow)
+  useEffect(() => {
+    if (account && expectedAddress && !isVerifyingRef.current) {
+      const key = `${account.toLowerCase()}-${expectedAddress.toLowerCase()}`
+      
+      // Check if we've already verified this combination
+      if (verifiedAccountRef.current === key) {
+        return
+      }
+
+      isVerifyingRef.current = true
+      verifiedAccountRef.current = key
       setLoading(prev => ({ ...prev, isConnecting: false }))
       
       if (account.toLowerCase() === expectedAddress.toLowerCase()) {
-        toast.success('✅ Wallet verified! Logging you in...')
-        // Redirect to dashboard or home after successful login
-        setTimeout(() => {
-          router.push('/')
-        }, 1500)
+        // Wallet matches! Login with wallet address to get/refresh tokens
+        loginByWallet(account)
+          .then(() => {
+            toast.success('✅ Wallet verified! Logging you in...')
+            // Redirect to dashboard or home after successful login
+            setTimeout(() => {
+              router.push('/')
+            }, 1500)
+          })
+          .catch((error) => {
+            console.error('Login error:', error)
+            toast.error('Failed to complete login')
+            // Reset on error so user can try again
+            verifiedAccountRef.current = null
+          })
+          .finally(() => {
+            isVerifyingRef.current = false
+          })
       } else {
         // Show detailed toast message to add the correct wallet to MetaMask
         disconnectWallet()
@@ -137,10 +174,12 @@ export default function Login() {
             }
           }
         )
-        // Don't reset expectedAddress, let user try again with correct wallet
+        // Reset so user can try again
+        verifiedAccountRef.current = null
+        isVerifyingRef.current = false
       }
     }
-  }, [account, expectedAddress, router])
+  }, [account, expectedAddress, router, loginByWallet, disconnectWallet])
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12">
@@ -157,9 +196,15 @@ export default function Login() {
               </p>
               <button
                 onClick={async () => {
-                  setLoading(prev => ({ ...prev, isConnecting: true }))
-                  await connectWallet()
-                  setLoading(prev => ({ ...prev, isConnecting: false }))
+                  try {
+                    setLoading(prev => ({ ...prev, isConnecting: true }))
+                    await connectWallet()
+                    // Account will be set by Web3Context, we'll handle login in useEffect
+                  } catch (error: any) {
+                    console.error('Connection error:', error)
+                    toast.error(error?.message || 'Failed to connect wallet')
+                    setLoading(prev => ({ ...prev, isConnecting: false }))
+                  }
                 }}
                 disabled={loading.isConnecting}
                 className="flex items-center justify-center space-x-3 bg-blue-gradient-primary hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-4 rounded-lg transition-all w-full text-lg font-semibold shadow-lg"

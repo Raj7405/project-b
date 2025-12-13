@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Web3Provider } from "@/contexts/Web3Context";
+import { AuthProvider } from "@/contexts/AuthContext";
 import { Toaster } from "react-hot-toast";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -133,14 +134,16 @@ export default function RootLayout({
       <body className={inter.className}>
         <NavigationProgressBar />
         <Web3Provider>
-          <div className="flex flex-col min-h-screen">
-            <Navbar />
-            <main className="grow">
-              {children}
-            </main>
-            <Footer />
-          </div>
-          <Toaster position="top-right" />
+          <AuthProvider>
+            <div className="flex flex-col min-h-screen">
+              <Navbar />
+              <main className="grow">
+                {children}
+              </main>
+              <Footer />
+            </div>
+            <Toaster position="top-right" />
+          </AuthProvider>
         </Web3Provider>
       </body>
     </html>

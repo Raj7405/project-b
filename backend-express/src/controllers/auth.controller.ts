@@ -84,18 +84,38 @@ export const registerUser = async (req: Request, res: Response) => {
     }
 }
 
+/**
+ * Unified endpoint to get user by wallet address or user ID
+ * 
+ * FLOW EXPLANATION:
+ * 1. If user has valid Bearer token → Authenticate them, return user + refreshed tokens (isAuthorized: true)
+ * 2. If user searches by wallet/ID (no token) → Find user, generate NEW tokens for first-time login (isAuthorized: false)
+ *    - This allows non-logged-in users to get tokens they can use for future authenticated requests
+ *    - Frontend should store these tokens and use them in subsequent requests
+ * 
+ * Supports:
+ * - Authorization token (Bearer token) - returns user with refreshed tokens if valid
+ * - Query param: walletAddress - find user by wallet address (generates tokens for first-time users)
+ * - Query param: id or userId - find user by user ID (generates tokens for first-time users)
+ * 
+ * Returns user data and tokens in all cases (tokens are always provided for authentication)
+ */
 export const getRegisterUser = async (req: Request, res: Response) => {
     try {
         const authHeader = req.headers.authorization;
-        let walletAddress: string | undefined;
+        let user = null;
+        let isAuthorized = false;
+        let accessToken: string | undefined;
+        let refreshToken: string | undefined;
 
+        // SCENARIO 1: User has a valid Bearer token (already logged in)
         if (authHeader?.startsWith('Bearer ')) {
             try {
                 const token = authHeader.substring(7);
                 const payload = verifyToken(token);
                 
                 if (payload.type === 'access') {
-                    const user = await prisma.user.findUnique({
+                    user = await prisma.user.findUnique({
                         where: { id: payload.userId }
                     });
 
@@ -109,23 +129,17 @@ export const getRegisterUser = async (req: Request, res: Response) => {
                     const now = Math.floor(Date.now() / 1000);
                     const timeUntilExpiry = (payload.exp || 0) - now;
                     
-                    let accessToken = token;
-                    let refreshToken = req.headers['x-refresh-token'] as string;
+                    accessToken = token;
+                    refreshToken = req.headers['x-refresh-token'] as string;
                     
+                    // Refresh tokens if they're about to expire (within 5 minutes)
                     if (timeUntilExpiry < 300) { 
                         const tokens = generateTokens(user.id, user.walletAddress);
                         accessToken = tokens.accessToken;
                         refreshToken = tokens.refreshToken;
                     }
 
-                    return res.status(200).json({
-                        user,
-                        accessToken,
-                        refreshToken,
-                        expiresIn: getTokenExpiry(false),
-                        refreshExpiresIn: getTokenExpiry(true),
-                        isAuthorized: true
-                    });
+                    isAuthorized = true; // User is authenticated via valid token
                 }
             } catch (error: any) {
                 if (error.message === 'Token has expired' || error.message === 'Invalid token') {
@@ -134,37 +148,68 @@ export const getRegisterUser = async (req: Request, res: Response) => {
                         isAuthorized: false 
                     });
                 }
+                // If token verification fails, continue to check query params (fallback to scenario 2)
             }
         }
 
-        walletAddress = req.query.walletAddress as string;
-        
-        if (!walletAddress) {
-            return res.status(400).json({ 
-                error: 'Wallet address is required or provide valid authorization token',
-                isAuthorized: false
-            });
-        }
-
-        walletAddress = walletAddress.replace(/['"]/g, '').trim().toLowerCase();
-        
-        const user = await prisma.user.findUnique({
-            where: { walletAddress }
-        });
-
+        // SCENARIO 2: User is NOT logged in - searching by wallet address or user ID
+        // This is for first-time users or users who don't have tokens yet
         if (!user) {
-            return res.status(404).json({ 
-                error: 'User not found',
-                isAuthorized: false 
-            });
+            const walletAddress = req.query.walletAddress as string;
+            const userId = req.query.id as string || req.query.userId as string;
+
+            if (!walletAddress && !userId) {
+                return res.status(400).json({ 
+                    error: 'Please provide either walletAddress, id/userId query parameter, or a valid authorization token',
+                    isAuthorized: false
+                });
+            }
+
+            // Find user by wallet address
+            if (walletAddress) {
+                const cleanAddress = walletAddress.replace(/['"]/g, '').trim().toLowerCase();
+                user = await prisma.user.findUnique({
+                    where: { walletAddress: cleanAddress }
+                });
+            } 
+            // Find user by ID
+            else if (userId) {
+                user = await prisma.user.findUnique({
+                    where: { id: userId }
+                });
+            }
+
+            if (!user) {
+                return res.status(404).json({ 
+                    error: 'User not found',
+                    isAuthorized: false 
+                });
+            }
+
+            // IMPORTANT: Generate tokens for first-time users or users without tokens
+            // These tokens allow them to authenticate in future requests
+            // isAuthorized: false because they haven't proven ownership yet (no token was provided)
+            // but tokens are provided so they can use them for next request
+            const tokens = generateTokens(user.id, user.walletAddress);
+            accessToken = tokens.accessToken;
+            refreshToken = tokens.refreshToken;
+            isAuthorized = false; // Not authenticated via token, but tokens provided for future use
         }
 
-        res.status(200).json({
+        // Return user data with tokens (tokens are ALWAYS provided)
+        const response: any = {
             user,
-            isAuthorized: false
-        });
+            isAuthorized, // true if authenticated via token, false if found via query params
+            // Tokens are always included so users can authenticate in future requests
+            accessToken,
+            refreshToken,
+            expiresIn: getTokenExpiry(false),
+            refreshExpiresIn: getTokenExpiry(true)
+        };
+
+        res.status(200).json(response);
     } catch (error) {
-        console.error('Error getting register user:', error);
+        console.error('Error getting user:', error);
         res.status(500).json({ 
             error: 'Internal server error',
             isAuthorized: false 
@@ -172,6 +217,10 @@ export const getRegisterUser = async (req: Request, res: Response) => {
     }
 }
 
+/**
+ * Legacy endpoint - kept for backward compatibility
+ * Use getRegisterUser with query param 'id' instead
+ */
 export const getUserById = async(req:Request,res:Response)=>{
     try{
         const { id } = req.params;
@@ -181,7 +230,18 @@ export const getUserById = async(req:Request,res:Response)=>{
         if(!user){
             return res.status(404).json({ error: 'User not found' });
         }
-        res.status(200).json(user);
+        
+        // Generate tokens for the user
+        const { accessToken, refreshToken } = generateTokens(user.id, user.walletAddress);
+        
+        res.status(200).json({
+            user,
+            accessToken,
+            refreshToken,
+            expiresIn: getTokenExpiry(false),
+            refreshExpiresIn: getTokenExpiry(true),
+            isAuthorized: false
+        });
     }
     catch(error){
         console.error('Error getting user by id:', error);

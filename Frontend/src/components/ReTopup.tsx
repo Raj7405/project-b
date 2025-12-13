@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useWeb3 } from '@/contexts/Web3Context'
 import { ethers } from 'ethers'
 import toast from 'react-hot-toast'
@@ -16,41 +16,60 @@ export default function ReTopup() {
   const [reTopupAmount, setReTopupAmount] = useState('40')
   const [checking, setChecking] = useState(true)
 
+  // Ref to prevent multiple simultaneous calls
+  const checkingRef = useRef(false)
+  const lastCheckedAccount = useRef<string | null>(null)
+
   useEffect(() => {
-    if (account) {
+    if (account && !checkingRef.current && lastCheckedAccount.current !== account.toLowerCase()) {
       checkRegistration()
     }
   }, [account])
 
   const checkRegistration = async () => {
+    // Prevent multiple simultaneous calls
+    if (checkingRef.current) {
+      return
+    }
+
     try {
+      checkingRef.current = true
       setChecking(true)
+      
       if (!account) {
         console.log(' checkRegistration No account found')
         setIsRegistered(false)
         setChecking(false)
+        checkingRef.current = false
         return
       }
+
+      const accountKey = account.toLowerCase()
+      lastCheckedAccount.current = accountKey
 
       // Fetch user data from backend API
       let user
       try {
-        user = await authApi.getUserByWallet(account)
+        const response = await authApi.getUserByWallet(account)
+        // API returns { user, accessToken, refreshToken, ... }
+        user = response.user || response
       } catch (error: any) {
         // User not found in backend - not registered
         if (error.message.includes('Failed to fetch user')) {
           console.log('checkRegistration User not found in backend')
           setIsRegistered(false)
           setChecking(false)
+          checkingRef.current = false
           return
         }
         throw error
       }
 
-      if (!user) {
+      if (!user || !user.id) {
         console.log('checkRegistrationUser not found in backend')
         setIsRegistered(false)
         setChecking(false)
+        checkingRef.current = false
         return
       }
 
@@ -59,6 +78,7 @@ export default function ReTopup() {
         console.log('checkRegistration Payment not completed')
         setIsRegistered(false)
         setChecking(false)
+        checkingRef.current = false
         return
       }
 
@@ -79,11 +99,12 @@ export default function ReTopup() {
       }
 
       setChecking(false)
+      checkingRef.current = false
     } catch (error) {
       console.error('checkRegistration Error checking registration:', error)
-      console.log('checkRegistration Error checking registration:', error)
       setIsRegistered(false)
       setChecking(false)
+      checkingRef.current = false
     }
   }
 
