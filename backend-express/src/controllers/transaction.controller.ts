@@ -1,107 +1,149 @@
 import { Request, Response } from 'express';
 import prisma from '../config/database';
 import { TransactionType } from '@prisma/client';
+import { verifyToken } from '../services/auth.service';
 
-export const getUserTransactions = async (req: Request, res: Response) => {
+interface AuthenticatedRequest extends Request {
+  user?: {
+    userId: string;
+    walletAddress: string;
+  };
+}
+
+/**
+ * Unified transaction API with filters
+ * 
+ * Query Parameters:
+ * - type: TransactionType (optional) - Filter by transaction type
+ * - page: number (optional) - Page number for pagination (default: 0)
+ * - size: number (optional) - Page size for pagination (default: 20, max: 100)
+ * - days: number (optional) - Filter transactions from last N days
+ * - aggregate: boolean (optional) - If true, returns total income instead of list
+ * - limit: number (optional) - Limit number of results (for non-paginated queries)
+ * 
+ * Authentication: Requires Bearer token in Authorization header
+ */
+export const getTransactions = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const userId = String(req.params.userId);
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ 
+        error: 'Authentication required',
+        message: 'Bearer token is required in Authorization header'
+      });
+    }
+
+    const token = authHeader.substring(7);
+    let payload;
+    try {
+      payload = verifyToken(token);
+    } catch (error: any) {
+      return res.status(401).json({ 
+        error: error.message || 'Invalid token',
+        message: 'Token verification failed'
+      });
+    }
+
+    if (payload.type !== 'access') {
+      return res.status(401).json({ 
+        error: 'Invalid token type',
+        message: 'Access token required'
+      });
+    }
+
+    const userId = payload.userId;
+
+    const type = req.query.type as TransactionType | undefined;
+    const page = parseInt(req.query.page as string) || undefined;
+    const size = Math.min(parseInt(req.query.size as string) || 20, 100); // Max 100
+    const days = parseInt(req.query.days as string) || undefined;
+    const aggregate = req.query.aggregate === 'true' || req.query.aggregate === '1';
+    const limit = parseInt(req.query.limit as string) || undefined;
+
+    const where: any = { userId };
+
+    if (type) {
+      where.type = type;
+    }
+
+    if (days) {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      where.createdAt = {
+        gte: startDate
+      };
+    }
+
+    if (aggregate) {
+      if (!type) {
+        return res.status(400).json({ 
+          error: 'Type parameter required',
+          message: 'Transaction type is required for aggregate queries'
+        });
+      }
+
+      const result = await prisma.transaction.aggregate({
+        where,
+        _sum: { amount: true }
+      });
+
+      return res.json({ 
+        total: result._sum.amount || 0,
+        type,
+        userId
+      });
+    }
+
+    if (page !== undefined) {
+      const [transactions, total] = await Promise.all([
+        prisma.transaction.findMany({
+          where,
+          skip: page * size,
+          take: size,
+          orderBy: { createdAt: 'desc' }
+        }),
+        prisma.transaction.count({ where })
+      ]);
+
+      return res.json({
+        content: transactions,
+        totalElements: total,
+        totalPages: Math.ceil(total / size),
+        page,
+        size
+      });
+    }
+
+    if (limit) {
+      const transactions = await prisma.transaction.findMany({
+        where,
+        take: limit,
+        orderBy: { createdAt: 'desc' }
+      });
+
+      return res.json({
+        transactions,
+        count: transactions.length,
+        limit
+      });
+    }
+
     const transactions = await prisma.transaction.findMany({
-      where: { userId },
+      where,
       orderBy: { createdAt: 'desc' }
     });
-
-    res.json(transactions);
-  } catch (error) {
-    console.error('Error getting user transactions:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-export const getUserTransactionsPaginated = async (req: Request, res: Response) => {
-  try {
-    const userId = String(req.params.userId);
-    const page = parseInt(req.query.page as string) || 0;
-    const size = parseInt(req.query.size as string) || 20;
-
-    const [transactions, total] = await Promise.all([
-      prisma.transaction.findMany({
-        where: { userId },
-        skip: page * size,
-        take: size,
-        orderBy: { createdAt: 'desc' }
-      }),
-      prisma.transaction.count({ where: { userId } })
-    ]);
 
     res.json({
-      content: transactions,
-      totalElements: total,
-      totalPages: Math.ceil(total / size),
-      page,
-      size
-    });
-  } catch (error) {
-    console.error('Error getting user transactions paginated:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-export const getUserTransactionsByType = async (req: Request, res: Response) => {
-  try {
-    const userId = String(req.params.userId);
-    const type = req.params.type as TransactionType;
-
-    const transactions = await prisma.transaction.findMany({
-      where: { userId, type },
-      orderBy: { createdAt: 'desc' }
+      transactions,
+      count: transactions.length
     });
 
-    res.json(transactions);
   } catch (error) {
-    console.error('Error getting user transactions by type:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-export const getRecentTransactions = async (req: Request, res: Response) => {
-  try {
-    const days = parseInt(req.query.days as string) || 7;
-    const limit = parseInt(req.query.limit as string) || 100;
-    
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-
-    const transactions = await prisma.transaction.findMany({
-      where: {
-        createdAt: {
-          gte: startDate
-        }
-      },
-      take: limit,
-      orderBy: { createdAt: 'desc' }
+    console.error('Error getting transactions:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      message: 'Failed to retrieve transactions'
     });
-
-    res.json(transactions);
-  } catch (error) {
-    console.error('Error getting recent transactions:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-export const getTotalIncomeByType = async (req: Request, res: Response) => {
-  try {
-    const userId = String(req.params.userId);
-    const type = req.params.type as TransactionType;
-
-    const result = await prisma.transaction.aggregate({
-      where: { userId, type },
-      _sum: { amount: true }
-    });
-
-    res.json({ total: result._sum.amount || 0 });
-  } catch (error) {
-    console.error('Error getting total income by type:', error);
-    res.status(500).json({ error: 'Internal server error' });
   }
 };
 

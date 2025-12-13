@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { startBlockchainListener } from './services/blockchain-listener.service';
 import authRoutes from './routes/auth.routes';
+import transactionRoutes from './routes/transaction.routes';
 import { connectRedis } from './redis/connection';
 
 dotenv.config();
@@ -20,6 +21,7 @@ app.use(morgan('dev'));
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/transactions', transactionRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
