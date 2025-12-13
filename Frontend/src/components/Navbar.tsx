@@ -78,15 +78,16 @@ export default function Navbar() {
             )}
             
             {!account ? (
-              <button
-                onClick={connectWallet}
-                className="flex items-center space-x-2 bg-blue-gradient-primary hover:bg-white text-white px-6 py-5 rounded-lg transition-all cursor-pointer"
-                disabled={isConnecting}
-              >
-                <FaWallet />
-                <span>Connect Wallet</span>
-                {isConnecting && <FaSpinner className="animate-spin" />}
-              </button>
+              <Link href="/login">
+                <button
+                  className="flex items-center space-x-2 bg-blue-gradient-primary hover:bg-white text-white px-6 py-5 rounded-lg transition-all cursor-pointer"
+                  disabled={isConnecting}
+                >
+                  <FaWallet />
+                  <span>Connect Wallet</span>
+                  {isConnecting && <FaSpinner className="animate-spin" />}
+                </button>
+              </Link>
             ) : (
               <div className="flex items-center space-x-3">
                 <span className="text-sm font-medium text-gray-700 bg-gray-100 px-4 py-2 rounded-lg">
@@ -139,16 +140,18 @@ export default function Navbar() {
             {/* Wallet Section */}
             <div className="pt-2">
               {!account ? (
-                <button
-                  onClick={() => {
-                    connectWallet()
-                    setIsMobileMenuOpen(false)
-                  }}
-                  className="flex items-center justify-center space-x-2 bg-blue-gradient-primary hover:bg-white text-white px-6 py-3 rounded-lg transition-all w-full"
-                >
-                  <FaWallet />
-                  <span>Connect Wallet</span>
-                </button>
+                <Link href="/login">
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false)
+                    }}
+                    className="flex items-center justify-center space-x-2 bg-blue-gradient-primary hover:bg-white text-white px-6 py-3 rounded-lg transition-all w-full"
+                  >
+                    <FaWallet />
+                    <span>Connect Wallet</span>
+                  </button>
+
+                </Link>
               ) : (
                 <div className="space-y-2">
                   <div className="text-sm font-medium text-gray-700 bg-gray-100 px-4 py-2 rounded-lg text-center">

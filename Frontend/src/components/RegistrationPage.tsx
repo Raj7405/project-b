@@ -7,6 +7,7 @@ import { ethers } from 'ethers'
 import toast from 'react-hot-toast'
 import { switchToHardhatNetwork, checkHardhatNodeRunning } from '@/utils/networkHelpers'
 import { useRouter } from 'next/navigation'
+import { API_URL } from '@/utils/constants'
 
 export default function RegistrationPage() {
   const router = useRouter()
@@ -73,7 +74,7 @@ export default function RegistrationPage() {
       const normalizedWalletAddress = account.toLowerCase()
 
       // Call backend API to register user in database
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api'
+      const API_URL = `${API_URL}/api` || 'http://localhost:8080/api'
       const response = await fetch(`${API_URL}/auth/register-user`, {
         method: 'POST',
         headers: {

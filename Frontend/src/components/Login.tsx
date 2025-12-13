@@ -6,21 +6,21 @@ import { useWeb3 } from '@/contexts/Web3Context'
 import toast from 'react-hot-toast'
 import { getReadOnlyContract } from '@/utils/readOnlyContract'
 import { useRouter } from 'next/navigation'
+import { API_URL } from '@/utils/constants'
 
 export default function Login() {
   const [userId, setUserId] = useState('')
   const [expectedAddress, setExpectedAddress] = useState<string | null>(null)
-  const [hasWalletInMetaMask, setHasWalletInMetaMask] = useState<boolean | null>(null)
   const [loading, setLoading] = useState({
     isViewing: false,
     isConnecting: false,
   })
-  const { connectWallet, account } = useWeb3()
+  const { connectWallet, account, disconnectWallet } = useWeb3()
   const router = useRouter()
 
   const getUserById = async(id:string)=>{
     try{
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/get-user-by-id/${id}`)
+      const response = await fetch(`${API_URL}/api/auth/get-user-by-id/${id}`)
       const data = await response.json()
       return data
     }
@@ -71,60 +71,13 @@ export default function Login() {
 
       // Store the expected address
       setExpectedAddress(userAddress)
-      
-      // Check if user has this wallet in MetaMask
-      await checkWalletInMetaMask(userAddress)
+      toast.success('✅ Wallet address found! Please connect your wallet.')
       
     } catch (error: any) {
       console.error('Error retrieving address:', error)
       toast.error(error?.message || 'Error retrieving user. Please try again.')
     } finally {
       setLoading(prev => ({ ...prev, isViewing: false }))
-    }
-  }
-
-  // Check if the retrieved wallet address exists in MetaMask
-  const checkWalletInMetaMask = async (expectedAddr: string) => {
-    try {
-      if (typeof window.ethereum === 'undefined') {
-        toast.error('Please install MetaMask to continue!')
-        setHasWalletInMetaMask(false)
-        return
-      }
-
-      // Request accounts without connecting (just to check available accounts)
-      // This will show MetaMask popup but won't connect
-      const accounts = await window.ethereum.request({ 
-        method: 'eth_accounts' 
-      }) as string[]
-
-      console.log('Available accounts in MetaMask:', accounts)
-      console.log('Expected address:', expectedAddr)
-
-      // Check if expected address is in the list (case-insensitive)
-      const hasWallet = accounts.some(
-        acc => acc.toLowerCase() === expectedAddr.toLowerCase()
-      )
-
-      setHasWalletInMetaMask(hasWallet)
-
-      if (hasWallet) {
-        toast.success(`✅ Wallet found in MetaMask! You can proceed to login.`)
-      } else {
-        toast(`This wallet is not in your MetaMask. Please import it first.`, {
-          duration: 5000,
-          icon: '⚠️',
-          style: {
-            background: '#fbbf24',
-            color: '#000',
-          }
-        })
-      }
-
-    } catch (error: any) {
-      console.error('Error checking MetaMask accounts:', error)
-      // If we can't check, assume they need to import
-      setHasWalletInMetaMask(false)
     }
   }
 
@@ -163,8 +116,28 @@ export default function Login() {
           router.push('/')
         }, 1500)
       } else {
-        toast.error(`❌ Wrong wallet! Expected: ${expectedAddress.slice(0, 6)}...${expectedAddress.slice(-4)}`)
-        setExpectedAddress(null) // Reset for retry
+        // Show detailed toast message to add the correct wallet to MetaMask
+        disconnectWallet()
+        toast.error(
+          `❌ Wrong wallet connected!\n\n` +
+          `Expected wallet: ${expectedAddress}\n\n` +
+          `Please add this wallet address to MetaMask:\n` +
+          `1. Open MetaMask extension\n` +
+          `2. Click account icon → Import Account\n` +
+          `3. Enter the private key for: ${expectedAddress.slice(0, 6)}...${expectedAddress.slice(-4)}\n` +
+          `4. Connect the correct wallet and try again`,
+          {
+            duration: 8000,
+            style: {
+              background: '#ef4444',
+              color: '#fff',
+              padding: '16px',
+              maxWidth: '500px',
+              whiteSpace: 'pre-line',
+            }
+          }
+        )
+        // Don't reset expectedAddress, let user try again with correct wallet
       }
     }
   }, [account, expectedAddress, router])
@@ -228,44 +201,19 @@ export default function Login() {
                 
                 {/* Show expected address if found */}
                 {expectedAddress && (
-                  <div className={`rounded-lg p-4 ${
-                    hasWalletInMetaMask 
-                      ? 'bg-green-500/10 border border-green-500/30' 
-                      : 'bg-yellow-500/10 border border-yellow-500/30'
-                  }`}>
+                  <div className="rounded-lg p-4 bg-blue-500/10 border border-blue-500/30">
                     <div className="flex items-center justify-center space-x-2 mb-2">
-                      <FaCheckCircle className={hasWalletInMetaMask ? 'text-green-400' : 'text-yellow-400'} />
-                      <span className={`font-semibold ${hasWalletInMetaMask ? 'text-green-400' : 'text-yellow-400'}`}>
-                        {hasWalletInMetaMask ? 'User Found!' : 'Wallet Not Found in MetaMask'}
+                      <FaCheckCircle className="text-blue-400" />
+                      <span className="font-semibold text-blue-400">
+                        Wallet Address Found
                       </span>
                     </div>
-                    <p className="text-white text-sm break-all mb-2">
+                    <p className="text-white text-sm break-all mb-3 font-mono bg-black/30 p-2 rounded">
                       {expectedAddress}
                     </p>
-                    
-                    {hasWalletInMetaMask ? (
-                      <p className="text-gray-400 text-xs">
-                        ✅ This wallet is in your MetaMask. Click below to connect.
-                      </p>
-                    ) : (
-                      <div className="text-left space-y-2 mt-3">
-                        <p className="text-yellow-300 text-xs font-semibold">
-                          ⚠️ You need to import this wallet to MetaMask first:
-                        </p>
-                        <ol className="text-xs text-gray-300 space-y-1 pl-4 list-decimal">
-                          <li>Open MetaMask extension</li>
-                          <li>Click on your account icon (top right)</li>
-                          <li>Select "Import Account" or "Add account"</li>
-                          <li>Enter your private key or seed phrase</li>
-                          <li>Come back and try again</li>
-                        </ol>
-                        <div className="bg-red-500/10 border border-red-500/30 rounded p-2 mt-2">
-                          <p className="text-red-300 text-xs">
-                            🔒 Never share your private key with anyone!
-                          </p>
-                        </div>
-                      </div>
-                    )}
+                    <p className="text-gray-300 text-xs text-center">
+                      Please connect the wallet with this address to continue
+                    </p>
                   </div>
                 )}
 
@@ -290,8 +238,8 @@ export default function Login() {
                   </button>
                 )}
 
-                {/* Step 2 Button: Connect Wallet (only if wallet found in MetaMask) */}
-                {expectedAddress && !account && hasWalletInMetaMask && (
+                {/* Step 2 Button: Connect Wallet (always show when address is found) */}
+                {expectedAddress && !account && (
                   <button
                     onClick={handleConnectAndVerify}
                     disabled={loading.isConnecting}
@@ -305,20 +253,9 @@ export default function Login() {
                     ) : (
                       <>
                         <FaWallet className="text-xl" />
-                        <span>CONNECT & VERIFY</span>
+                        <span>CONNECT WALLET</span>
                       </>
                     )}
-                  </button>
-                )}
-
-                {/* Recheck button if wallet not found */}
-                {expectedAddress && !account && hasWalletInMetaMask === false && (
-                  <button
-                    onClick={() => checkWalletInMetaMask(expectedAddress)}
-                    className="flex items-center justify-center space-x-3 bg-yellow-600 hover:bg-yellow-700 text-white px-8 py-4 rounded-lg transition-all w-full text-lg font-semibold shadow-lg"
-                  >
-                    <FaSearch className="text-xl" />
-                    <span>RECHECK METAMASK</span>
                   </button>
                 )}
 
@@ -328,7 +265,6 @@ export default function Login() {
                     onClick={() => {
                       setExpectedAddress(null)
                       setUserId('')
-                      setHasWalletInMetaMask(null)
                     }}
                     className="text-sm text-gray-400 hover:text-white transition-colors"
                   >
