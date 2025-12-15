@@ -7,23 +7,26 @@ import { processRegistrationPayout, processRetopupPayout } from './payout-distri
 let isListening = false;
 let lastProcessedBlock = BigInt(0);
 let consecutiveErrors = 0;
-let backoffDelay = 1000; 
-let currentEventTypeIndex = 0; 
+let backoffDelay = 1000;
+let isProcessing = false;
 
-const MAX_BLOCKS_PER_QUERY = BigInt(process.env.MAX_BLOCKS_PER_QUERY || '50'); 
-const DELAY_BETWEEN_CHUNKS = parseInt(process.env.DELAY_BETWEEN_CHUNKS || '5000'); 
-const MAX_BLOCKS_BEHIND = BigInt(process.env.MAX_BLOCKS_BEHIND || '1000'); 
-const MAX_RETRIES = 2; 
-const PROCESS_ONE_EVENT_TYPE_PER_CYCLE = process.env.PROCESS_ONE_EVENT_TYPE_PER_CYCLE !== 'false'; 
+const FAST_POLLING_INTERVAL = parseInt(process.env.FAST_POLLING_INTERVAL || '5000');
+const MAX_BLOCKS_PER_QUERY = BigInt(process.env.MAX_BLOCKS_PER_QUERY || '10');
+const DELAY_BETWEEN_EVENT_TYPES = parseInt(process.env.DELAY_BETWEEN_EVENT_TYPES || '2000');
+const MAX_CATCHUP_BLOCKS = BigInt(process.env.MAX_CATCHUP_BLOCKS || '5000');
+const MAX_RETRIES = 3;
+const INITIAL_RETRY_DELAY = 3000;
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const isRateLimitError = (error: any): boolean => {
   return (
     error?.code === -32005 ||
+    error?.code === 429 ||
     error?.message?.includes('limit exceeded') ||
     error?.message?.includes('rate limit') ||
-    error?.message?.includes('too many requests')
+    error?.message?.includes('too many requests') ||
+    error?.message?.includes('exceeded')
   );
 };
 
@@ -35,7 +38,7 @@ const processEventTypeWithRetry = async (
   eventName: string
 ): Promise<boolean> => {
   let retries = 0;
-  let currentDelay = 2000; // Start with 2 seconds
+  let currentDelay = INITIAL_RETRY_DELAY;
 
   while (retries < MAX_RETRIES) {
     try {
@@ -45,11 +48,12 @@ const processEventTypeWithRetry = async (
       if (isRateLimitError(error)) {
         retries++;
         if (retries >= MAX_RETRIES) {
+          console.log(`   ⚠️  ${eventName} rate limited after ${MAX_RETRIES} retries, skipping...`);
           return false;
         }
-        console.log(`   ⏳ Rate limit for ${eventName}, waiting ${currentDelay}ms (retry ${retries}/${MAX_RETRIES})...`);
+        console.log(`   ⏳ Rate limit hit for ${eventName}, waiting ${currentDelay}ms (retry ${retries}/${MAX_RETRIES})...`);
         await wait(currentDelay);
-        currentDelay *= 2; 
+        currentDelay *= 2;
       } else {
         console.error(`   ❌ Error processing ${eventName}:`, error.message || error);
         return false;
@@ -65,97 +69,98 @@ export const startBlockchainListener = async () => {
     return;
   }
 
-  console.log('🎧 Starting BSC blockchain event listener...');
+  console.log('🎧 Starting RATE-LIMIT FRIENDLY BSC blockchain event listener...');
 
   try {
     await prisma.$connect();
     console.log('✅ Database connected');
 
+    const provider = getProvider();
+    const currentBlock = await provider.getBlockNumber();
+    const currentBlockBigInt = BigInt(currentBlock);
+
     const sync = await prisma.blockchainSync.findFirst();
     if (sync) {
       lastProcessedBlock = sync.lastBlock;
     } else {
-      const startBlock = process.env.START_BLOCK || '0';
-      lastProcessedBlock = BigInt(startBlock);
+      lastProcessedBlock = currentBlockBigInt;
       await prisma.blockchainSync.create({
+        data: { lastBlock: lastProcessedBlock }
+      });
+      console.log(`📍 Starting fresh from current block: ${lastProcessedBlock}`);
+    }
+
+    const blocksBehind = currentBlockBigInt - lastProcessedBlock;
+    if (blocksBehind > MAX_CATCHUP_BLOCKS) {
+      console.log(`⚠️  Too far behind (${blocksBehind} blocks). Resetting to last ${MAX_CATCHUP_BLOCKS} blocks...`);
+      lastProcessedBlock = currentBlockBigInt - MAX_CATCHUP_BLOCKS;
+      await prisma.blockchainSync.updateMany({
         data: { lastBlock: lastProcessedBlock }
       });
     }
 
     console.log(`📍 Starting from block: ${lastProcessedBlock}`);
-    console.log(`⚙️  Configuration: MAX_BLOCKS_PER_QUERY=${MAX_BLOCKS_PER_QUERY}, DELAY=${DELAY_BETWEEN_CHUNKS}ms`);
+    console.log(`📊 Current blockchain block: ${currentBlockBigInt}`);
+    console.log(`📈 Blocks to catch up: ${currentBlockBigInt - lastProcessedBlock}`);
+    console.log(`⚙️  RATE-LIMIT FRIENDLY MODE:`);
+    console.log(`   - Polling: every ${FAST_POLLING_INTERVAL}ms`);
+    console.log(`   - Chunk size: ${MAX_BLOCKS_PER_QUERY} blocks`);
+    console.log(`   - Delay between event types: ${DELAY_BETWEEN_EVENT_TYPES}ms`);
 
     isListening = true;
     startPolling();
   } catch (error: any) {
     console.error('❌ Failed to start blockchain listener:', error.message);
-    console.error('💡 Database connection failed. Check DATABASE_URL and ensure database is accessible.');
     isListening = false;
     throw error;
   }
 };
 
 const startPolling = async () => {
-  const pollingInterval = parseInt(process.env.POLLING_INTERVAL || '15000');
-
   processEvents().catch(error => {
     console.error('❌ Error in initial processEvents:', error);
   });
 
   setInterval(async () => {
-    try {
-      await processEvents();
-    } catch (error) {
-      console.error('❌ Error processing events:', error);
+    if (!isProcessing) {
+      try {
+        await processEvents();
+      } catch (error) {
+        console.error('❌ Error processing events:', error);
+      }
     }
-  }, pollingInterval);
+  }, FAST_POLLING_INTERVAL);
 };
 
 const processEvents = async () => {
+  if (isProcessing) {
+    return;
+  }
+
+  isProcessing = true;
   const provider = getProvider();
   const contract = getContract();
 
-  
-
   try {
-
-    const network = await provider.getNetwork();
-    console.log('Listener network:', network.name, 'chainId:', network.chainId.toString());
-    
     await ensureDatabaseConnection();
     
     const currentBlock = await provider.getBlockNumber();
     const currentBlockBigInt = BigInt(currentBlock);
 
     if (currentBlockBigInt <= lastProcessedBlock) {
+      isProcessing = false;
       return;
     }
 
-    const fromBlock = lastProcessedBlock === BigInt(0) ? lastProcessedBlock : lastProcessedBlock + BigInt(1);
-    const totalBlocks = currentBlockBigInt - fromBlock + BigInt(1);
+    const fromBlock = lastProcessedBlock + BigInt(1);
+    const blocksBehind = currentBlockBigInt - lastProcessedBlock;
 
-    if (totalBlocks > MAX_BLOCKS_BEHIND) {
-      console.log(`⚠️  Too far behind (${totalBlocks} blocks). Skipping to recent blocks (${MAX_BLOCKS_BEHIND} blocks back)...`);
-      const newStartBlock = currentBlockBigInt - MAX_BLOCKS_BEHIND;
-      lastProcessedBlock = newStartBlock;
-      await prisma.blockchainSync.updateMany({
-        data: { lastBlock: lastProcessedBlock }
-      });
-      console.log(`📍 Reset to block: ${lastProcessedBlock}`);
-      return;
-    }
-
-    const chunkToBlock = fromBlock + MAX_BLOCKS_PER_QUERY - BigInt(1);
-    const actualToBlock = chunkToBlock > currentBlockBigInt ? currentBlockBigInt : chunkToBlock;
-    const chunkSize = Number(actualToBlock - fromBlock + BigInt(1));
+    const toBlock = fromBlock + MAX_BLOCKS_PER_QUERY - BigInt(1);
+    const actualToBlock = toBlock > currentBlockBigInt ? currentBlockBigInt : toBlock;
+    const actualChunkSize = Number(actualToBlock - fromBlock + BigInt(1));
     
-    // Track processing start time for timeout fallback
-    const processingStartTime = Date.now();
-    const MAX_PROCESSING_TIME = 120000; // 2 minutes max per block range
+    console.log(`\n📦 Processing blocks ${fromBlock} to ${actualToBlock} (${actualChunkSize} blocks) [${blocksBehind} behind]`);
     
-    console.log(`📦 Processing blocks ${fromBlock} to ${actualToBlock} (${chunkSize} blocks)`);
-    
-    // Process ALL event types in one cycle for guaranteed block advancement
     const eventTypes = [
       { name: 'RegistrationAccepted', processor: processRegistrationAcceptedEvents },
       { name: 'RetopupAccepted', processor: processRetopupAcceptedEvents },
@@ -165,89 +170,63 @@ const processEvents = async () => {
     
     const results: boolean[] = [];
     
-    // Process all event types sequentially
-    for (const eventType of eventTypes) {
-      try {
-        const success = await processEventTypeWithRetry(
-          contract,
-          eventType.processor,
-          fromBlock,
-          actualToBlock,
-          eventType.name
-        );
-        results.push(success);
-        
-        if (success) {
-          console.log(`   ✅ ${eventType.name} processed successfully`);
-        } else {
-          console.log(`   ⚠️  ${eventType.name} failed (will retry in next cycle)`);
-        }
-        
-        // Small delay between event types to avoid rate limits
-        await wait(500);
-      } catch (error: any) {
-        console.error(`   ❌ Error processing ${eventType.name}:`, error.message || error);
-        results.push(false);
+    for (let i = 0; i < eventTypes.length; i++) {
+      const eventType = eventTypes[i];
+      
+      const success = await processEventTypeWithRetry(
+        contract,
+        eventType.processor,
+        fromBlock,
+        actualToBlock,
+        eventType.name
+      );
+      
+      results.push(success);
+      
+      if (success) {
+        console.log(`   ✅ ${eventType.name}`);
+      } else {
+        console.log(`   ⚠️  ${eventType.name} failed/skipped`);
+      }
+      
+      if (i < eventTypes.length - 1) {
+        console.log(`   ⏸️  Waiting ${DELAY_BETWEEN_EVENT_TYPES}ms before next event type...`);
+        await wait(DELAY_BETWEEN_EVENT_TYPES);
       }
     }
     
-    // ✅ CRITICAL FIX: Always advance block, even if some events failed
-    // This ensures listener never gets stuck
-    const allSucceeded = results.every(r => r);
-    const someSucceeded = results.some(r => r);
-    const processingTime = Date.now() - processingStartTime;
+    const successCount = results.filter(r => r).length;
     
-    if (allSucceeded) {
-      // All events processed successfully
-      lastProcessedBlock = actualToBlock;
-      await ensureDatabaseConnection();
-      await prisma.blockchainSync.updateMany({
-        data: { lastBlock: lastProcessedBlock }
-      });
-      console.log(`✅ All event types processed successfully. Advanced to block ${lastProcessedBlock}`);
-      consecutiveErrors = 0;
-      backoffDelay = 1000;
-    } else if (someSucceeded || processingTime > MAX_PROCESSING_TIME) {
-      // Some events succeeded OR timeout reached - advance block anyway
-      // This prevents listener from getting stuck on failed events
-      lastProcessedBlock = actualToBlock;
-      await ensureDatabaseConnection();
-      await prisma.blockchainSync.updateMany({
-        data: { lastBlock: lastProcessedBlock }
-      });
-      
-      if (processingTime > MAX_PROCESSING_TIME) {
-        console.log(`⏰ Timeout reached (${processingTime}ms). Advanced to block ${lastProcessedBlock} to prevent stalling`);
-      } else {
-        console.log(`✅ Some events processed. Advanced to block ${lastProcessedBlock} (${results.filter(r => r).length}/${results.length} succeeded)`);
-      }
-      
+    lastProcessedBlock = actualToBlock;
+    await ensureDatabaseConnection();
+    await prisma.blockchainSync.updateMany({
+      data: { lastBlock: lastProcessedBlock }
+    });
+    
+    if (successCount === results.length) {
+      console.log(`✅ Block ${lastProcessedBlock} - All events processed (${successCount}/${results.length})`);
       consecutiveErrors = 0;
       backoffDelay = 1000;
     } else {
-      // All events failed - still advance block to prevent infinite retry
-      // But increase error count for backoff
-      lastProcessedBlock = actualToBlock;
-      await ensureDatabaseConnection();
-      await prisma.blockchainSync.updateMany({
-        data: { lastBlock: lastProcessedBlock }
-      });
-      console.log(`⚠️  All events failed, but advancing block ${lastProcessedBlock} to prevent stalling`);
-      consecutiveErrors++;
-      backoffDelay = Math.min(backoffDelay * 2, 30000);
+      console.log(`⚠️  Block ${lastProcessedBlock} - Advanced (${successCount}/${results.length} succeeded)`);
     }
+
+    isProcessing = false;
+
   } catch (error: any) {
+    isProcessing = false;
     consecutiveErrors++;
     backoffDelay = Math.min(backoffDelay * 2, 30000);
     
-    console.error('Error in processEvents:', error.message || error);
+    console.error('❌ Error in processEvents:', error.message || error);
     
     if (isRateLimitError(error)) {
-      console.error(`\n💡 Rate limit exceeded. Waiting ${backoffDelay}ms before next attempt...`);
-      console.error('   Consider:');
-      console.error(`   1. Reduce MAX_BLOCKS_PER_QUERY in .env (current: ${MAX_BLOCKS_PER_QUERY})`);
-      console.error(`   2. Increase DELAY_BETWEEN_CHUNKS (current: ${DELAY_BETWEEN_CHUNKS}ms)`);
-      console.error('   3. Use a premium RPC provider with higher limits');
+      console.error(`\n💡 RATE LIMIT EXCEEDED`);
+      console.error(`   Waiting ${backoffDelay}ms before retry...`);
+      console.error(`\n   🔧 To fix permanently:`);
+      console.error(`   1. Get a better RPC provider (QuickNode, Ankr, GetBlock)`);
+      console.error(`   2. Or reduce MAX_BLOCKS_PER_QUERY in .env (current: ${MAX_BLOCKS_PER_QUERY})`);
+      console.error(`   3. Or increase DELAY_BETWEEN_EVENT_TYPES (current: ${DELAY_BETWEEN_EVENT_TYPES}ms)\n`);
       await wait(backoffDelay);
     }
   }
@@ -270,7 +249,6 @@ const processRegistrationAcceptedEvents = async (
       if (!('args' in event)) continue;
 
       const [user, backendCaller, amount] = event.args as any;
-      // Normalize wallet address to lowercase (Ethereum addresses are case-insensitive)
       const walletAddress = user.toLowerCase(); 
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
@@ -330,7 +308,6 @@ const processRetopupAcceptedEvents = async (
     try {
       if (!('args' in event)) continue;
       const [user, backendCaller, amount, totalRetopups] = event.args as any;
-      // Normalize wallet address to lowercase (Ethereum addresses are case-insensitive)
       const walletAddress = user.toLowerCase();
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
@@ -398,7 +375,6 @@ const processPayoutExecutedEvents = async (
     try {
       if (!('args' in event)) continue;
       const [user, amount, rewardType] = event.args as any;
-      // Normalize wallet address to lowercase (Ethereum addresses are case-insensitive)
       const walletAddress = user.toLowerCase();
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
