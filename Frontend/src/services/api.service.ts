@@ -69,17 +69,38 @@ export const authApi = {
   },
 
   // POST /api/auth/retopup
-  retopupUser: async (walletAddress: string) => {
+  // Uses both Authorization header (when tokens provided) and walletAddress in body
+  // so backend can verify the authenticated wallet matches the requested wallet.
+  retopupUser: async (
+    walletAddress: string,
+    options?: { accessToken?: string | null; refreshToken?: string | null }
+  ) => {
+    const { accessToken, refreshToken } = options || {}
+
+    const headers: HeadersInit = { 'Content-Type': 'application/json' }
+    if (accessToken && refreshToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`
+      headers['x-refresh-token'] = refreshToken
+    }
+
     const response = await fetch(`${API_BASE_URL}/auth/retopup`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify([walletAddress])
-    });
+      headers,
+      // Backend supports either array or { walletAddress }; use object for clarity
+      body: JSON.stringify({ walletAddress: walletAddress.toLowerCase() }),
+    })
+
+    const data = await response.json().catch(() => ({}))
+
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.reason || error.error || 'Failed to retopup');
+      // Surface detailed reason from backend when available
+      const msg = data.reason || data.error || 'Failed to retopup'
+      const error: any = new Error(msg)
+      error.response = data
+      throw error
     }
-    return response.json();
+
+    return data
   },
 };
 

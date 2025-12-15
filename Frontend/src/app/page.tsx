@@ -50,6 +50,7 @@ export default function Home() {
                     </p>
                   </div>
 
+                  {!account && (
                   <div className='flex flex-col sm:flex-row gap-4 max-w-md mx-auto lg:mx-0'>
                     <Link 
                       href="/registration" 
@@ -64,6 +65,7 @@ export default function Home() {
                       <span>Login</span>
                     </Link>     
                   </div>
+                  )}
                 </div>
 
                 {/* Right Side - 3D BNB Coin (appears first on mobile) */}

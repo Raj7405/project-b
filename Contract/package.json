@@ -17,8 +17,8 @@
     "generate:accounts:10": "node generate-test-accounts.js 10",
     "show:accounts": "node show-test-accounts.js",
     "transfer": "hardhat run transfer-to-address.js --network localhost",
-    "transfer:batch": "hardhat run batch-transfer.js --network localhost",
-    "check:wallet": "hardhat run check-company-wallet.js --network localhost"
+    "transfer:batch": "hardhat run ./scripts/check-and-transfer-tokens.js --network localhost",
+    "check:wallet": "hardhat run ./scripts/check-company-wallet.js --network localhost"
   },
   "keywords": [
     "blockchain",

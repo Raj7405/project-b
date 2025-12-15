@@ -8,6 +8,7 @@ import { FaUser, FaUsers, FaCheckCircle, FaCoins, FaLayerGroup } from 'react-ico
 import BinaryTree from './BinaryTree'
 import BinaryTreeLive from './BinaryTreeLive'
 import { authApi, transactionApi } from '@/services/api.service'
+import { useAuth } from '@/contexts/AuthContext'
 
 export default function Dashboard() {
   const { account, tokenContract } = useWeb3()
@@ -17,6 +18,7 @@ export default function Dashboard() {
   const [packageAmount, setPackageAmount] = useState('20')
   const [reTopupAmount, setReTopupAmount] = useState('40')
   const [retopupCount, setRetopupCount] = useState(0)
+  const { user, loginByWallet } = useAuth()
 
   useEffect(() => {
     if (tokenContract && account) {
@@ -33,23 +35,30 @@ export default function Dashboard() {
         return
       }
       
-      // Fetch user data from backend API
-      let user
-      try {
-        const response = await authApi.getUserByWallet(account)
-        // API returns { user, accessToken, refreshToken, ... }
-        user = response.user || response
-      } catch (error: any) {
-        // User not found in backend - not registered
-        if (error.message.includes('Failed to fetch user')) {
-          setUserData(null)
-          setLoading(false)
-          return
+      // Use user data from AuthContext if available and matches current account
+      let currentUser = user
+
+      // If no user in store or wallet changed, fetch from backend via AuthContext
+      if (
+        !currentUser ||
+        !currentUser.walletAddress ||
+        currentUser.walletAddress.toLowerCase() !== account.toLowerCase()
+      ) {
+        try {
+          const result = await loginByWallet(account)
+          currentUser = result?.user
+        } catch (error: any) {
+          // User not found in backend - not registered
+          if (error.message?.includes('Failed to fetch user')) {
+            setUserData(null)
+            setLoading(false)
+            return
+          }
+          throw error
         }
-        throw error
       }
 
-      if (!user || !user.id) {
+      if (!currentUser || !currentUser.id) {
         setUserData(null)
         setLoading(false)
         return
@@ -81,16 +90,16 @@ export default function Dashboard() {
 
       // Calculate total earnings from backend data
       const totalEarnings = (
-        parseFloat(user.totalDirectIncome || '0') +
-        parseFloat(user.totalLevelIncome || '0') +
-        parseFloat(user.totalAutoPoolIncome || '0')
+        parseFloat(currentUser.totalDirectIncome || '0') +
+        parseFloat(currentUser.totalLevelIncome || '0') +
+        parseFloat(currentUser.totalAutoPoolIncome || '0')
       ).toFixed(2)
 
       // Get parent user info for referrer display
       let referrerAddress = 'Company (Root)'
-      if (user.parentId) {
+      if (currentUser.parentId) {
         try {
-          const parentResponse = await authApi.getUserById(user.parentId)
+          const parentResponse = await authApi.getUserById(currentUser.parentId)
           // API returns { user, accessToken, refreshToken, ... }
           const parentUser = parentResponse.user || parentResponse
           referrerAddress = parentUser?.walletAddress || 'Company (Root)'
@@ -99,17 +108,18 @@ export default function Dashboard() {
         }
       }
 
+      // Store normalized user data for this dashboard
       setUserData({
-        id: user.id || '',
-        wallet: user.walletAddress || account,
+        id: currentUser.id || '',
+        wallet: currentUser.walletAddress || account,
         referrer: referrerAddress,
-        referralCount: (user.sponsorCount ?? 0).toString(),
-        directIncome: parseFloat(user.totalDirectIncome || '0').toFixed(2),
-        poolIncome: parseFloat(user.totalAutoPoolIncome || '0').toFixed(2),
-        levelIncome: parseFloat(user.totalLevelIncome || '0').toFixed(2),
+        referralCount: (currentUser.sponsorCount ?? 0).toString(),
+        directIncome: parseFloat(currentUser.totalDirectIncome || '0').toFixed(2),
+        poolIncome: parseFloat(currentUser.totalAutoPoolIncome || '0').toFixed(2),
+        levelIncome: parseFloat(currentUser.totalLevelIncome || '0').toFixed(2),
         totalEarnings: totalEarnings,
         retopupCount: retopupTransactions,
-        hasReTopup: user.hasReTopup || false,
+        hasReTopup: currentUser.hasReTopup || false,
       })
       
       setTokenBalance(balance)
@@ -229,14 +239,14 @@ export default function Dashboard() {
             User Information
           </h2>
           <div className="grid md:grid-cols-2 gap-6">
-            <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/30 p-4 rounded-lg border border-slate-700/50 hover:border-blue-500/50 transition-all">
+            {/* <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/30 p-4 rounded-lg border border-slate-700/50 hover:border-blue-500/50 transition-all">
               <p className="text-gray-400 text-sm mb-2">Wallet Address</p>
               <p className="font-mono text-sm break-all text-blue-300">{userData.wallet}</p>
             </div>
             <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/30 p-4 rounded-lg border border-slate-700/50 hover:border-blue-500/50 transition-all">
               <p className="text-gray-400 text-sm mb-2">Referrer Address</p>
               <p className="font-mono text-sm break-all text-blue-300">{userData.referrer || 'Company (Root)'}</p>
-            </div>
+            </div> */}
             <div className="bg-gradient-to-br from-blue-900/20 to-blue-800/10 p-4 rounded-lg border border-blue-700/30 hover:border-blue-500/50 transition-all">
               <p className="text-gray-400 text-sm mb-2">Direct Income</p>
               <p className="text-xl font-bold text-blue-400">${parseFloat(userData.directIncome).toFixed(2)}</p>

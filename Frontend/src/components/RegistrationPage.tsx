@@ -3,38 +3,36 @@
 import { useEffect, useState } from 'react'
 import { FaEdit, FaSpinner } from 'react-icons/fa'
 import { useWeb3 } from '@/contexts/Web3Context'
+import { useAuth } from '@/contexts/AuthContext'
 import { ethers } from 'ethers'
 import toast from 'react-hot-toast'
 import { switchToHardhatNetwork, checkHardhatNodeRunning } from '@/utils/networkHelpers'
 import { useRouter } from 'next/navigation'
 import { API_URL } from '@/utils/constants'
+import { authApi } from '@/services/api.service'
 
 export default function RegistrationPage() {
   const router = useRouter()
   const [uplineId, setUplineId] = useState('1')
   const [isEditing, setIsEditing] = useState(false)
-  const [dbUserId, setDbUserId] = useState<string | null>(null) // Store DB user ID after backend registration
   const [registerStep, setRegisterStep] = useState<{
-    backendRegistration: boolean,
     tokenApproval: boolean,
-    blockchainRegistration: boolean,
+    registration: boolean,
   }>({
-    backendRegistration: true,
     tokenApproval: true,
-    blockchainRegistration: false,
+    registration: false,
   })
   const [loading, setLoading] = useState<{
     isWalletConnecting: boolean,
-    isBackendRegistering: boolean,
     isApproving: boolean,
-    isBlockchainRegistering: boolean,
+    isRegistering: boolean,
   }>({
     isWalletConnecting: false,
-    isBackendRegistering: false,
     isApproving: false,
-    isBlockchainRegistering: false,
+    isRegistering: false,
   })
   const { connectWallet, account, contract, tokenContract, provider } = useWeb3()
+  const { loginByWallet } = useAuth()
 
   const handleConnectWallet = async () => {
     setLoading(prev => ({ ...prev, isWalletConnecting: true }))
@@ -54,13 +52,16 @@ export default function RegistrationPage() {
     )
   }
 
-  const handleBackendRegistration = async () => {
-    if (!account) {
-      toast.error('Please connect your wallet first')
+  // This function is no longer needed - backend handles everything
+  // Keeping for reference but not used
+
+  const handleApprove = async () => {
+    if (!tokenContract || !contract || !provider || !account) {
+      toast.error('Contract not initialized or wallet not connected')
       return
     }
 
-    // Validate upline ID
+    // Validate upline ID first
     const uplineIdValue = uplineId.trim()
     if (!uplineIdValue) {
       toast.error('Please enter a valid upline ID')
@@ -68,63 +69,7 @@ export default function RegistrationPage() {
     }
 
     try {
-
-      toast.loading('Validating registration...')
-      // Normalize wallet address to lowercase for consistency
-      const normalizedWalletAddress = account.toLowerCase()
-
-      // Call backend API to register user in database
-      const API_URL = `${API_URL}/api` || 'http://localhost:8080/api'
-      const response = await fetch(`${API_URL}/auth/register-user`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          walletAddress: normalizedWalletAddress,
-          uplineId: uplineIdValue
-        })
-      })
-
-      const data = await response.json()
-
-      toast.dismiss()
-
-      if (!response.ok || !data.canRegister) {
-        toast.error(data.reason || 'Registration validation failed')
-        setLoading(prev => ({ ...prev, isBackendRegistering: false }))
-        return
-      }
-
-      // Store user ID from backend
-      setDbUserId(data.user.id)
-
-      toast.success('✅ Validation successful! Now approve tokens.')
-      
-      // Move to next step
-      setRegisterStep({
-        backendRegistration: false,
-        tokenApproval: true,
-        blockchainRegistration: false
-      })
-
-    } catch (error: any) {
-      console.error('Backend registration error:', error)
-      toast.dismiss()
-      toast.error('Failed to connect to backend: ' + (error.message || 'Network error'))
-      throw new Error('Backend registration error:', error.message);
-    }
-  }
-
-  const handleApprove = async () => {
-    if (!tokenContract || !contract || !provider) {
-      toast.error('Contract not initialized')
-      return
-    }
-
-    try {
       setLoading(prev => ({ ...prev, isApproving: true }))
-      await handleBackendRegistration();
       
       // Check if contract is deployed
       const contractAddress = await contract.getAddress()
@@ -211,13 +156,17 @@ export default function RegistrationPage() {
       await tx.wait()
       
       toast.dismiss()
-      toast.success('✅ Approval successful! Now register on blockchain.')
+      toast.success('✅ Approval successful! Now registering...')
       setLoading(prev => ({ ...prev, isApproving: false }))
+      
+      // Move to registration step
       setRegisterStep({
-        backendRegistration: false,
         tokenApproval: false,
-        blockchainRegistration: true
+        registration: true
       })
+      
+      // Automatically trigger registration after approval
+      await handleRegistration()
     } catch (error: any) {
       console.error('Approval error:', error)
       toast.dismiss()
@@ -242,147 +191,77 @@ export default function RegistrationPage() {
        
       setLoading(prev => ({ ...prev, isApproving: false }))
       setRegisterStep({
-        backendRegistration: true,
         tokenApproval: true,
-        blockchainRegistration: false
+        registration: false
       })
     }
   }
 
-  const handleBlockchainRegistration = async () => {
-    if (!contract || !tokenContract || !account || !provider) {
-      toast.error('Contract not initialized')
+  // New simplified registration handler - backend does everything
+  const handleRegistration = async () => {
+    if (!account) {
+      toast.error('Please connect your wallet first')
       return
     }
 
-    if (!dbUserId) {
-      toast.error('Please complete backend registration first')
+    // Validate upline ID
+    const uplineIdValue = uplineId.trim()
+    if (!uplineIdValue) {
+      toast.error('Please enter a valid upline ID')
       return
     }
 
     try {
-      setLoading(prev => ({ ...prev, isBlockchainRegistering: true }))
-
-      // Check if contract is deployed
-      const contractAddress = await contract.getAddress()
-      const contractCode = await provider.getCode(contractAddress)
-      const network = await provider.getNetwork()
-      const expectedChainId = BigInt(1337) // Hardhat local network
-      
-            // Check network
-      if (network.chainId !== expectedChainId) {
-        const isHardhatRunning = await checkHardhatNodeRunning()
-        if (!isHardhatRunning) {
-          toast.error(
-            `❌ Hardhat node is not running! Please start it first: cd Contract && npx hardhat node`,
-            { duration: 10000 }
-          )
-          setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
-          return
-        }
-
-        try {
-          toast.loading('Switching to Hardhat Local network...')
-          await switchToHardhatNetwork()
-          toast.dismiss()
-          toast.success('✅ Switched to Hardhat Local network! Please try again.')
-          setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
-          setTimeout(() => window.location.reload(), 1000)
-          return
-        } catch (switchError: any) {
-          toast.error(
-            `Wrong Network! Please switch to Hardhat Local (Chain ID: 1337) in MetaMask.`,
-            { duration: 10000 }
-          )
-          setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
-          return
-        }
-      }
-      
-      if (contractCode === '0x' || !contractCode) {
-        toast.error(
-          'Contract not deployed! Please deploy the contract first.',
-          { duration: 6000 }
-        )
-        setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
-        return
-      }
-
-      // Check if already registered on blockchain
-      const isRegistered = await contract.registered(account)
-      if (isRegistered) {
-        toast.error('You are already registered on blockchain!')
-        setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
-        return
-      }
-
-      // Check allowance and balance
-      const entryPrice = await contract.entryPrice()
-      const allowance = await tokenContract.allowance(account, contractAddress)
-      const balance = await tokenContract.balanceOf(account)
-      const tokenDecimals = await tokenContract.decimals()
-
-      
-      if (allowance < entryPrice) {
-        toast.error('Please approve tokens first.')
-        setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
-        return
-      }
-      
-      if (balance < entryPrice) {
-        const required = ethers.formatUnits(entryPrice, tokenDecimals)
-        const current = ethers.formatUnits(balance, tokenDecimals)
-        toast.error(
-          `❌ Insufficient balance!\n\nRequired: ${required} tokens\nYour Balance: ${current} tokens`,
-          { duration: 15000 }
-        )
-        setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
-        return
-      }
-
-      // Register on blockchain
+      setLoading(prev => ({ ...prev, isRegistering: true }))
       toast.loading('Registering on blockchain... This may take a few moments.')
-      
-      // Call contract.register(userAddress, amount)
-      const tx = await contract.register(account, entryPrice)
-      const receipt = await tx.wait()
-      
-      console.log("✅ Registration tx:", receipt.hash)
-      
+
+      // Call backend API - backend handles DB creation + blockchain registration
+      const result = await authApi.registerUser(account, uplineIdValue)
+
       toast.dismiss()
-      toast.success('🎉 Blockchain registration successful! Backend will process your registration.')
+
+      if (!result.canRegister) {
+        toast.error(result.reason || 'Registration failed')
+        setLoading(prev => ({ ...prev, isRegistering: false }))
+        return
+      }
+
+      // Store tokens in AuthContext for future authenticated requests
+      if (result.accessToken && result.refreshToken) {
+        await loginByWallet(account)
+      }
+
+      toast.success(`🎉 Registration successful! Transaction: ${result.txHash?.substring(0, 10)}...`)
       
-      // Store user info in localStorage for login
-      localStorage.setItem('crypto_mlm_user', JSON.stringify({
-        id: dbUserId,
-        walletAddress: account,
-        registeredAt: new Date().toISOString()
-      }))
-      
-      setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
+      setLoading(prev => ({ ...prev, isRegistering: false }))
       
       // Redirect to dashboard after 2 seconds
       setTimeout(() => {
-        router.push('/dashboard')
+        router.push('/')
       }, 2000)
 
     } catch (error: any) {
-      console.error('Blockchain registration error:', error)
+      console.error('Registration error:', error)
       toast.dismiss()
       
-      const errorMessage = error.reason || error.message || 'Unknown error'
+      const errorMessage = error.message || error.reason || 'Registration failed'
       
-      if (errorMessage.includes('Already registered')) {
-        toast.error('You are already registered on blockchain!')
-      } else if (errorMessage.includes('transfer amount exceeds balance')) {
-        toast.error('Insufficient token balance!')
-      } else if (errorMessage.includes('Insufficient amount')) {
-        toast.error('Insufficient token amount for registration!')
+      if (errorMessage.includes('Insufficient token allowance')) {
+        toast.error('Please approve tokens first!')
+        setRegisterStep({
+          tokenApproval: true,
+          registration: false
+        })
+      } else if (errorMessage.includes('already exists')) {
+        toast.error('You are already registered!')
+        setTimeout(() => {
+          router.push('/')
+        }, 2000)
       } else {
         toast.error('❌ Registration failed: ' + errorMessage)
       }
       
-      setLoading(prev => ({ ...prev, isBlockchainRegistering: false }))
+      setLoading(prev => ({ ...prev, isRegistering: false }))
     }
   }
 
@@ -428,34 +307,41 @@ export default function RegistrationPage() {
                 {/* Step 1: Approve Tokens */}
                 <button
                   onClick={handleApprove}
-                  disabled={loading.isApproving || !registerStep.tokenApproval || loading.isBackendRegistering}
+                  disabled={loading.isApproving || !registerStep.tokenApproval || loading.isRegistering}
                   className="flex items-center justify-center space-x-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 disabled:from-gray-500 disabled:to-gray-600 disabled:cursor-not-allowed text-white px-8 py-4 rounded-lg transition-all w-full text-lg font-bold shadow-lg uppercase"
                 >
-                  {(loading.isApproving || loading.isBackendRegistering) ? (
+                  {loading.isApproving ? (
                     <>
                       <FaSpinner className="animate-spin" />
                       <span>APPROVING TOKENS...</span>
                     </>
+                  ) : loading.isRegistering ? (
+                    <>
+                      <FaSpinner className="animate-spin" />
+                      <span>REGISTERING...</span>
+                    </>
                   ) : (
-                    <span>1. APPROVE TOKENS</span>
+                    <span>1. APPROVE TOKENS & REGISTER</span>
                   )}
                 </button>
 
-                {/* Step 1: Blockchain Registration */}
-                <button
-                  onClick={handleBlockchainRegistration}
-                  disabled={loading.isBlockchainRegistering || !registerStep.blockchainRegistration}
-                  className="flex items-center justify-center space-x-3 bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 disabled:from-gray-500 disabled:to-gray-600 disabled:cursor-not-allowed text-white px-8 py-4 rounded-lg transition-all w-full text-lg font-bold shadow-lg uppercase"
-                >
-                  {loading.isBlockchainRegistering ? (
-                    <>
-                      <FaSpinner className="animate-spin" />
-                      <span>REGISTERING ON BLOCKCHAIN...</span>
-                    </>
-                  ) : (
-                    <span>2. REGISTER ON BLOCKCHAIN</span>
-                  )}
-                </button>
+                {/* Step 2: Manual Registration (if approval succeeded but registration didn't auto-trigger) */}
+                {registerStep.registration && !loading.isApproving && (
+                  <button
+                    onClick={handleRegistration}
+                    disabled={loading.isRegistering}
+                    className="flex items-center justify-center space-x-3 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 disabled:from-gray-500 disabled:to-gray-600 disabled:cursor-not-allowed text-white px-8 py-4 rounded-lg transition-all w-full text-lg font-bold shadow-lg uppercase"
+                  >
+                    {loading.isRegistering ? (
+                      <>
+                        <FaSpinner className="animate-spin" />
+                        <span>REGISTERING...</span>
+                      </>
+                    ) : (
+                      <span>2. COMPLETE REGISTRATION</span>
+                    )}
+                  </button>
+                )}
               </div>
             </div>
           </div>

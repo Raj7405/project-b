@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useWeb3 } from '@/contexts/Web3Context'
+import { useAuth } from '@/contexts/AuthContext'
 import { ethers } from 'ethers'
 import toast from 'react-hot-toast'
 import { FaArrowUp, FaSpinner, FaCheckCircle, FaInfoCircle, FaExclamationTriangle } from 'react-icons/fa'
@@ -9,6 +10,7 @@ import { authApi } from '@/services/api.service'
 
 export default function ReTopup() {
   const { account, contract, tokenContract } = useWeb3()
+  const { user, loginByWallet, accessToken, refreshToken, logout } = useAuth()
   const [loading, setLoading] = useState(false)
   const [approving, setApproving] = useState(false)
   const [isRegistered, setIsRegistered] = useState(false)
@@ -47,25 +49,32 @@ export default function ReTopup() {
       const accountKey = account.toLowerCase()
       lastCheckedAccount.current = accountKey
 
-      // Fetch user data from backend API
-      let user
-      try {
-        const response = await authApi.getUserByWallet(account)
-        // API returns { user, accessToken, refreshToken, ... }
-        user = response.user || response
-      } catch (error: any) {
-        // User not found in backend - not registered
-        if (error.message.includes('Failed to fetch user')) {
-          console.log('checkRegistration User not found in backend')
-          setIsRegistered(false)
-          setChecking(false)
-          checkingRef.current = false
-          return
+      // Reuse user data from AuthContext if available and matches current account
+      let currentUser = user
+
+      if (
+        !currentUser ||
+        !currentUser.walletAddress ||
+        currentUser.walletAddress.toLowerCase() !== accountKey
+      ) {
+        try {
+          // Use AuthContext login to fetch and store user in global auth store
+          const result = await loginByWallet(account)
+          currentUser = result?.user
+        } catch (error: any) {
+          // User not found in backend - not registered
+          if (error.message?.includes('Failed to fetch user')) {
+            console.log('checkRegistration User not found in backend')
+            setIsRegistered(false)
+            setChecking(false)
+            checkingRef.current = false
+            return
+          }
+          throw error
         }
-        throw error
       }
 
-      if (!user || !user.id) {
+      if (!currentUser || !currentUser.id) {
         console.log('checkRegistrationUser not found in backend')
         setIsRegistered(false)
         setChecking(false)
@@ -74,7 +83,7 @@ export default function ReTopup() {
       }
 
       // Check if payment is completed (required for retopup)
-      if (user.paymentStatus !== 'COMPLETED') {
+      if (currentUser.paymentStatus !== 'COMPLETED') {
         console.log('checkRegistration Payment not completed')
         setIsRegistered(false)
         setChecking(false)
@@ -84,7 +93,7 @@ export default function ReTopup() {
 
       console.log('checkRegistration User found in backend')
       setIsRegistered(true)
-      setHasReTopup(user.hasReTopup || false)
+      setHasReTopup(currentUser.hasReTopup || false)
 
       // Get retopup price from contract if available, otherwise use default
       if (contract && tokenContract) {
@@ -159,7 +168,7 @@ export default function ReTopup() {
 
       // Call backend API for retopup (backend handles the contract call)
       toast.loading('Processing re-topup...')
-      const result = await authApi.retopupUser(account)
+      const result = await authApi.retopupUser(account, { accessToken, refreshToken })
       
       toast.dismiss()
       toast.success(`Re-topup successful! 🎉 Transaction: ${result.txHash.substring(0, 10)}...`)
@@ -170,8 +179,23 @@ export default function ReTopup() {
     } catch (error: any) {
       console.error('Re-topup error:', error)
       toast.dismiss()
-      const errorMessage = error.message || error.reason || 'Re-topup failed'
-      toast.error(errorMessage)
+      const backend = error.response as any
+
+      // Handle auth/token errors explicitly
+      if (
+        error.message?.includes('Token has expired') ||
+        error.message?.includes('Invalid token') ||
+        backend?.error === 'Token has expired' ||
+        backend?.error === 'Invalid token'
+      ) {
+        toast.error('Session expired. Please login again.')
+        logout()
+      } else if (backend?.reason) {
+        toast.error(backend.reason)
+      } else {
+        const errorMessage = error.message || error.reason || 'Re-topup failed'
+        toast.error(errorMessage)
+      }
       setLoading(false)
     }
   }
@@ -212,7 +236,7 @@ export default function ReTopup() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="mx-auto space-y-6">
       {/* Header Card */}
       <div className="gradient-card">
         <div className="gradient-card-inner p-6">
@@ -299,7 +323,7 @@ export default function ReTopup() {
 
         {/* Important Note Card */}
         <div className="gradient-card">
-          <div className="gradient-card-inner p-6">
+          <div className="gradient-card-inner p-6 h-full">
             <div className="flex items-center mb-4">
               <div className="bg-gradient-to-br from-purple-500 to-purple-700 p-3 rounded-lg mr-3 shadow-lg">
                 <FaExclamationTriangle className="text-xl text-white" />

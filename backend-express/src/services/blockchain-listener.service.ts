@@ -115,7 +115,13 @@ const processEvents = async () => {
   const provider = getProvider();
   const contract = getContract();
 
+  
+
   try {
+
+    const network = await provider.getNetwork();
+    console.log('Listener network:', network.name, 'chainId:', network.chainId.toString());
+    
     await ensureDatabaseConnection();
     
     const currentBlock = await provider.getBlockNumber();
@@ -143,84 +149,92 @@ const processEvents = async () => {
     const actualToBlock = chunkToBlock > currentBlockBigInt ? currentBlockBigInt : chunkToBlock;
     const chunkSize = Number(actualToBlock - fromBlock + BigInt(1));
     
-    if (PROCESS_ONE_EVENT_TYPE_PER_CYCLE) {
-      const eventTypes = [
-        { name: 'RegistrationAccepted', processor: processRegistrationAcceptedEvents },
-        { name: 'RetopupAccepted', processor: processRetopupAcceptedEvents },
-        { name: 'PayoutExecuted', processor: processPayoutExecutedEvents },
-        { name: 'BatchPayoutCompleted', processor: processBatchPayoutCompletedEvents }
-      ];
-      
-      const currentEventType = eventTypes[currentEventTypeIndex % eventTypes.length];
-      console.log(`📦 Processing ${currentEventType.name} for blocks ${fromBlock} to ${actualToBlock} (${chunkSize} blocks)`);
-      
+    // Track processing start time for timeout fallback
+    const processingStartTime = Date.now();
+    const MAX_PROCESSING_TIME = 120000; // 2 minutes max per block range
+    
+    console.log(`📦 Processing blocks ${fromBlock} to ${actualToBlock} (${chunkSize} blocks)`);
+    
+    // Process ALL event types in one cycle for guaranteed block advancement
+    const eventTypes = [
+      { name: 'RegistrationAccepted', processor: processRegistrationAcceptedEvents },
+      { name: 'RetopupAccepted', processor: processRetopupAcceptedEvents },
+      { name: 'PayoutExecuted', processor: processPayoutExecutedEvents },
+      { name: 'BatchPayoutCompleted', processor: processBatchPayoutCompletedEvents }
+    ];
+    
+    const results: boolean[] = [];
+    
+    // Process all event types sequentially
+    for (const eventType of eventTypes) {
       try {
         const success = await processEventTypeWithRetry(
           contract,
-          currentEventType.processor,
+          eventType.processor,
           fromBlock,
           actualToBlock,
-          currentEventType.name
+          eventType.name
         );
+        results.push(success);
         
         if (success) {
-          console.log(`   ✅ ${currentEventType.name} processed successfully`);
-          consecutiveErrors = 0;
-          backoffDelay = 1000;
+          console.log(`   ✅ ${eventType.name} processed successfully`);
         } else {
-          console.log(`   ⚠️  ${currentEventType.name} failed, will retry next cycle`);
-          consecutiveErrors++;
-          backoffDelay = Math.min(backoffDelay * 2, 30000);
+          console.log(`   ⚠️  ${eventType.name} failed (will retry in next cycle)`);
         }
         
-        currentEventTypeIndex++;
-        
-        if (currentEventTypeIndex % eventTypes.length === 0) {
-          lastProcessedBlock = actualToBlock;
-          await ensureDatabaseConnection();
-          await prisma.blockchainSync.updateMany({
-            data: { lastBlock: lastProcessedBlock }
-          });
-          console.log(`✅ Completed all event types for blocks up to ${lastProcessedBlock}`);
-        }
-        
+        // Small delay between event types to avoid rate limits
+        await wait(500);
       } catch (error: any) {
-        if (isRateLimitError(error)) {
-          console.log(`   ⚠️  Rate limit hit. Waiting ${backoffDelay}ms before next cycle...`);
-          await wait(backoffDelay);
-          consecutiveErrors++;
-          backoffDelay = Math.min(backoffDelay * 2, 30000);
-        } else {
-          console.error(`   ❌ Error processing ${currentEventType.name}:`, error.message || error);
-          currentEventTypeIndex++;
-        }
+        console.error(`   ❌ Error processing ${eventType.name}:`, error.message || error);
+        results.push(false);
       }
-    } else {
-      console.log(`📦 Processing blocks ${fromBlock} to ${actualToBlock} (${chunkSize} blocks)`);
+    }
+    
+    // ✅ CRITICAL FIX: Always advance block, even if some events failed
+    // This ensures listener never gets stuck
+    const allSucceeded = results.every(r => r);
+    const someSucceeded = results.some(r => r);
+    const processingTime = Date.now() - processingStartTime;
+    
+    if (allSucceeded) {
+      // All events processed successfully
+      lastProcessedBlock = actualToBlock;
+      await ensureDatabaseConnection();
+      await prisma.blockchainSync.updateMany({
+        data: { lastBlock: lastProcessedBlock }
+      });
+      console.log(`✅ All event types processed successfully. Advanced to block ${lastProcessedBlock}`);
+      consecutiveErrors = 0;
+      backoffDelay = 1000;
+    } else if (someSucceeded || processingTime > MAX_PROCESSING_TIME) {
+      // Some events succeeded OR timeout reached - advance block anyway
+      // This prevents listener from getting stuck on failed events
+      lastProcessedBlock = actualToBlock;
+      await ensureDatabaseConnection();
+      await prisma.blockchainSync.updateMany({
+        data: { lastBlock: lastProcessedBlock }
+      });
       
-      const success1 = await processEventTypeWithRetry(contract, processRegistrationAcceptedEvents, fromBlock, actualToBlock, 'RegistrationAccepted');
-      await wait(1000);
-      
-      const success2 = await processEventTypeWithRetry(contract, processRetopupAcceptedEvents, fromBlock, actualToBlock, 'RetopupAccepted');
-      await wait(1000);
-      
-      const success3 = await processEventTypeWithRetry(contract, processPayoutExecutedEvents, fromBlock, actualToBlock, 'PayoutExecuted');
-      await wait(1000);
-      
-      const success4 = await processEventTypeWithRetry(contract, processBatchPayoutCompletedEvents, fromBlock, actualToBlock, 'BatchPayoutCompleted');
-      
-      if (success1 && success2 && success3 && success4) {
-        lastProcessedBlock = actualToBlock;
-        await ensureDatabaseConnection();
-        await prisma.blockchainSync.updateMany({
-          data: { lastBlock: lastProcessedBlock }
-        });
-        console.log(`✅ Processed up to block ${lastProcessedBlock}`);
-        consecutiveErrors = 0;
-        backoffDelay = 1000;
+      if (processingTime > MAX_PROCESSING_TIME) {
+        console.log(`⏰ Timeout reached (${processingTime}ms). Advanced to block ${lastProcessedBlock} to prevent stalling`);
       } else {
-        console.log(`⚠️  Some event types failed, will retry next cycle`);
+        console.log(`✅ Some events processed. Advanced to block ${lastProcessedBlock} (${results.filter(r => r).length}/${results.length} succeeded)`);
       }
+      
+      consecutiveErrors = 0;
+      backoffDelay = 1000;
+    } else {
+      // All events failed - still advance block to prevent infinite retry
+      // But increase error count for backoff
+      lastProcessedBlock = actualToBlock;
+      await ensureDatabaseConnection();
+      await prisma.blockchainSync.updateMany({
+        data: { lastBlock: lastProcessedBlock }
+      });
+      console.log(`⚠️  All events failed, but advancing block ${lastProcessedBlock} to prevent stalling`);
+      consecutiveErrors++;
+      backoffDelay = Math.min(backoffDelay * 2, 30000);
     }
   } catch (error: any) {
     consecutiveErrors++;

@@ -62,20 +62,70 @@ export const registerUser = async (req: Request, res: Response) => {
 
         const { accessToken, refreshToken } = generateTokens(newUser.id, newUser.walletAddress);
 
+
+        const contract = getContract();
+        const registrationPrice = await contract.entryPrice();
+        const contractAddress = process.env.CONTRACT_ADDRESS;
+        const tokenAddress = process.env.TOKEN_ADDRESS;
+        if (!contractAddress) {
+            throw new Error('CONTRACT_ADDRESS not set in environment');
+        }
+        if (!tokenAddress) {
+            throw new Error('TOKEN_ADDRESS not set in environment');
+        }
+
+        const tokenContract = getTokenContract();
+        const allowance = await tokenContract.allowance(walletAddress, contractAddress);
+        if (allowance < registrationPrice) {
+            console.log(`❌ Insufficient token allowance for ${walletAddress}`);
+            console.log(`   Required: ${ethers.formatEther(registrationPrice)} tokens`);
+            console.log(`   Current allowance: ${ethers.formatEther(allowance)} tokens`);
+            
+            return res.status(400).json({ 
+                error: 'Insufficient token allowance',
+                canRetopup: false,
+                reason: 'Token approval required',
+                required: ethers.formatEther(registrationPrice),
+                current: ethers.formatEther(allowance),
+                contractAddress: contractAddress,
+                tokenAddress: tokenAddress
+            });
+        }
+
+        console.log(`✅ Token allowance verified: ${ethers.formatEther(allowance)} tokens`);
+        console.log(`📤 Calling smart contract register for ${walletAddress}...`);
+
+        const contractWithSigner = getContractWithSigner();
+        const tx = await contractWithSigner.register(walletAddress, registrationPrice);
+        console.log(`⏳ Waiting for transaction confirmation: ${tx.hash}`);
+        
+        const receipt = await tx.wait();
+        console.log(`✅ Registration transaction confirmed in block ${receipt.blockNumber}`);
+
+        const updatedUser = await prisma.user.update({
+            where: { id: newUser.id },
+            data: { paymentStatus: PaymentStatus.COMPLETED }
+        });
+
+        console.log(`✅ Payment status updated to COMPLETED for user ${walletAddress}`);
+
         res.status(200).json({
             canRegister: true,
             reason: '',
             user: {
-                id: newUser.id,
-                walletAddress: newUser.walletAddress,
-                parentId: newUser.parentId,
-                paymentStatus: newUser.paymentStatus
+                id: updatedUser.id,
+                walletAddress: updatedUser.walletAddress,
+                parentId: updatedUser.parentId,
+                paymentStatus: updatedUser.paymentStatus
             },
             accessToken,
             refreshToken,
             expiresIn: getTokenExpiry(false), 
             refreshExpiresIn: getTokenExpiry(true), 
-            message: 'User created in database. Please call contract.register() from frontend.'
+            message: 'Registration completed successfully. Payment status updated to COMPLETED.',
+            txHash: receipt.hash,
+            blockNumber: receipt.blockNumber.toString(),
+            amount: ethers.formatEther(registrationPrice)
         });
 
     } catch (error) {
