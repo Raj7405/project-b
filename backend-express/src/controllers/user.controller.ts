@@ -116,3 +116,137 @@ export const getActiveReTopupCount = async (req: Request, res: Response) => {
   }
 };
 
+export const getUserAutopoolTree = async (req: Request, res: Response) => {
+  try {
+    const userId = String(req.params.userId);
+    const maxDepth = parseInt(req.query.depth as string) || 4; // Default 4 levels deep
+
+    const userNode = await prisma.autoPoolNode.findUnique({
+      where: { userId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            walletAddress: true,
+            totalAutoPoolIncome: true,
+            hasAutoPoolEntry: true
+          }
+        }
+      }
+    });
+
+    if (!userNode) {
+      return res.status(404).json({ 
+        error: 'User not found in autopool',
+        message: 'This user has not entered the autopool yet'
+      });
+    }
+
+    const tree = await buildTreeFromNode(userNode.id, maxDepth, 0);
+
+    res.json({
+      success: true,
+      userNode: {
+        id: userNode.id,
+        userId: userNode.userId,
+        walletAddress: userNode.walletAddress,
+        level: userNode.level,
+        position: userNode.position,
+        poolLevel: userNode.poolLevel,
+        treeNumber: userNode.treeNumber,
+        isComplete: userNode.isComplete,
+        totalAutoPoolIncome: userNode.user.totalAutoPoolIncome,
+        createdAt: userNode.createdAt
+      },
+      tree,
+      maxDepth
+    });
+  } catch (error) {
+    console.error('Error getting user autopool tree:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+async function buildTreeFromNode(
+  nodeId: string,
+  maxDepth: number,
+  currentDepth: number
+): Promise<any> {
+  if (currentDepth >= maxDepth) {
+    return null;
+  }
+
+  const node = await prisma.autoPoolNode.findUnique({
+    where: { id: nodeId },
+    include: {
+      user: {
+        select: {
+          id: true,
+          walletAddress: true,
+          totalAutoPoolIncome: true,
+          hasAutoPoolEntry: true
+        }
+      }
+    }
+  });
+
+  if (!node) {
+    return null;
+  }
+
+  const leftChild = await prisma.autoPoolNode.findFirst({
+    where: {
+      parentNodeId: nodeId,
+      position: 'left'
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          walletAddress: true,
+          totalAutoPoolIncome: true,
+          hasAutoPoolEntry: true
+        }
+      }
+    }
+  });
+
+  const rightChild = await prisma.autoPoolNode.findFirst({
+    where: {
+      parentNodeId: nodeId,
+      position: 'right'
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          walletAddress: true,
+          totalAutoPoolIncome: true,
+          hasAutoPoolEntry: true
+        }
+      }
+    }
+  });
+
+  const treeNode = {
+    id: node.id,
+    userId: node.userId,
+    walletAddress: node.walletAddress,
+    level: node.level,
+    position: node.position,
+    poolLevel: node.poolLevel,
+    treeNumber: node.treeNumber,
+    isComplete: node.isComplete,
+    totalAutoPoolIncome: parseFloat(node.user.totalAutoPoolIncome.toString()),
+    createdAt: node.createdAt,
+    left: leftChild 
+      ? await buildTreeFromNode(leftChild.id, maxDepth, currentDepth + 1)
+      : { isEmpty: true, position: 'left' },
+    right: rightChild
+      ? await buildTreeFromNode(rightChild.id, maxDepth, currentDepth + 1)
+      : { isEmpty: true, position: 'right' }
+  };
+
+  return treeNode;
+}
+
