@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { startBlockchainListener } from './services/blockchain-listener.service';
+import { startBlockchainWsListener } from './services/blockchain-ws-listerner-service';
 import authRoutes from './routes/auth.routes';
 import transactionRoutes from './routes/transaction.routes';
 import { connectRedis } from './redis/connection';
@@ -52,12 +53,24 @@ app.listen(PORT, async () => {
   }
 
   // Start blockchain event listener
+  // WebSocket listener is optional - app will work with HTTP polling if WS fails
   try {
-    await startBlockchainListener();
-    console.log('👂 Blockchain listener started');
-  } catch (error) {
-    console.error('❌ Failed to start blockchain listener:', error);
+    await startBlockchainWsListener();
+  } catch (error: any) {
+    const errorMsg = error?.message || String(error);
+    console.warn('⚠️  WebSocket listener failed to start (continuing with HTTP polling):', errorMsg);
+    console.warn('   This is normal if BSC_WS_RPC is not set, invalid, or using HTTP URL.');
+    console.warn('   The app will use HTTP polling which works reliably.');
   }
+
+  // // HTTP polling listener (always start this as fallback)
+  // try {
+  //   await startBlockchainListener();
+  //   console.log('✅ HTTP polling blockchain listener started');
+  // } catch (error) {
+  //   console.error('❌ Failed to start HTTP polling listener:', error);
+  //   console.error('   This is critical - blockchain events will not be processed!');
+  // }
 });
 
 export default app;

@@ -10,7 +10,7 @@ let consecutiveErrors = 0;
 let backoffDelay = 1000;
 let isProcessing = false;
 
-const FAST_POLLING_INTERVAL = parseInt(process.env.FAST_POLLING_INTERVAL || '5000');
+const FAST_POLLING_INTERVAL = parseInt(process.env.FAST_POLLING_INTERVAL || '50000');
 const MAX_BLOCKS_PER_QUERY = BigInt(process.env.MAX_BLOCKS_PER_QUERY || '10');
 const DELAY_BETWEEN_EVENT_TYPES = parseInt(process.env.DELAY_BETWEEN_EVENT_TYPES || '2000');
 const MAX_CATCHUP_BLOCKS = BigInt(process.env.MAX_CATCHUP_BLOCKS || '5000');
@@ -21,6 +21,7 @@ const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const isRateLimitError = (error: any): boolean => {
   return (
+    error?.code === -32002 ||   
     error?.code === -32005 ||
     error?.code === 429 ||
     error?.message?.includes('limit exceeded') ||
@@ -30,9 +31,17 @@ const isRateLimitError = (error: any): boolean => {
   );
 };
 
+type EventProcessor = (
+  contract: ethers.Contract,
+  fromBlock: bigint,
+  toBlock: bigint,
+  fromWs?: boolean,
+  wsEvent?: any
+) => Promise<void>;
+
 const processEventTypeWithRetry = async (
   contract: ethers.Contract,
-  eventProcessor: (contract: ethers.Contract, fromBlock: bigint, toBlock: bigint) => Promise<void>,
+  eventProcessor: EventProcessor,
   fromBlock: bigint,
   toBlock: bigint,
   eventName: string
@@ -232,35 +241,55 @@ const processEvents = async () => {
   }
 };
 
-const processRegistrationAcceptedEvents = async (
+export const processRegistrationAcceptedEvents = async (
   contract: ethers.Contract,
   fromBlock: bigint,
-  toBlock: bigint
+  toBlock: bigint,
+  fromWs: boolean = false,
+  wsEvent?: { user: string; backendCaller: string; amount: bigint; event: ethers.Log }
 ) => {
-  const filter = contract.filters.RegistrationAccepted();
-  const events = await contract.queryFilter(filter, fromBlock, toBlock);
+  let events: ethers.Log[] = [];
 
-  if (events.length > 0) {
-    console.log(`📥 Found ${events.length} RegistrationAccepted event(s) in blocks ${fromBlock} to ${toBlock}`);
+  if (fromWs && wsEvent) {
+    console.log(`📥 [WS] Processing RegistrationAccepted event from WebSocket at block ${wsEvent.event.blockNumber}`);
+    events = [wsEvent.event as ethers.Log];
+  } else {
+    const filter = contract.filters.RegistrationAccepted();
+    events = await contract.queryFilter(filter, fromBlock, toBlock);
+
+    if (events.length > 0) {
+      console.log(`📥 [HTTP] Found ${events.length} RegistrationAccepted event(s) in blocks ${fromBlock} to ${toBlock}`);
+    }
   }
 
   for (const event of events) {
     try {
-      if (!('args' in event)) continue;
+      let user: string;
+      let backendCaller: string;
+      let amount: bigint;
 
-      const [user, backendCaller, amount] = event.args as any;
+      if (fromWs && wsEvent) {
+        user = wsEvent.user;
+        backendCaller = wsEvent.backendCaller;
+        amount = wsEvent.amount;
+      } else {
+        if (!('args' in event)) continue;
+        [user, backendCaller, amount] = event.args as any;
+      }
+
       const walletAddress = user.toLowerCase(); 
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
 
-      console.log(`🔍 Processing RegistrationAccepted event for: ${walletAddress}`);
+      const source = fromWs ? '[WS]' : '[HTTP]';
+      console.log(`${source} 🔍 Processing RegistrationAccepted event for: ${walletAddress}`);
 
       let dbUser = await prisma.user.findUnique({
         where: { walletAddress }
       });
 
       if (!dbUser) {
-        console.log(`⚠️ User not found in database: ${walletAddress}, skipping registration event processing`);
-        console.log(`💡 Make sure user was created in database before contract registration`);
+        console.log(`${source} ⚠️ User not found in database: ${walletAddress}, skipping registration event processing`);
+        console.log(`${source} 💡 Make sure user was created in database before contract registration`);
         continue; 
       }
 
@@ -269,7 +298,7 @@ const processRegistrationAcceptedEvents = async (
         data: { paymentStatus: PaymentStatus.COMPLETED }
       });
 
-      console.log(`✅ RegistrationAccepted: Wallet=${walletAddress}, Amount=${amountInTokens}`);
+      console.log(`${source} ✅ RegistrationAccepted: Wallet=${walletAddress}, Amount=${amountInTokens}`);
 
       const parentUser = dbUser.parentId
         ? await prisma.user.findUnique({
@@ -281,35 +310,65 @@ const processRegistrationAcceptedEvents = async (
       const parentWalletAddress = parentUser?.walletAddress || null;
 
       if (parentWalletAddress) {
-        console.log(`🔄 Processing payout distribution for registration...`);
+        console.log(`${source} 🔄 Processing payout distribution for registration...`);
         try {
           await processRegistrationPayout(walletAddress, parentWalletAddress);
         } catch (payoutError) {
-          console.error('❌ Error processing registration payout:', payoutError);
+          console.error(`${source} ❌ Error processing registration payout:`, payoutError);
         }
       } else {
-        console.log(`⚠️  No parent found for ${walletAddress}, skipping payout distribution`);
+        console.log(`${source} ⚠️  No parent found for ${walletAddress}, skipping payout distribution`);
       }
     } catch (error) {
-      console.error('Error processing RegistrationAccepted event:', error);
+      const source = fromWs ? '[WS]' : '[HTTP]';
+      console.error(`${source} Error processing RegistrationAccepted event:`, error);
     }
   }
 };
 
-const processRetopupAcceptedEvents = async (
+export const processRetopupAcceptedEvents = async (
   contract: ethers.Contract,
   fromBlock: bigint,
-  toBlock: bigint
+  toBlock: bigint,
+  fromWs: boolean = false,
+  wsEvent?: { user: string; backendCaller: string; amount: bigint; totalRetopups: bigint; event: ethers.Log }
 ) => {
-  const filter = contract.filters.RetopupAccepted();
-  const events = await contract.queryFilter(filter, fromBlock, toBlock);
+  let events: ethers.Log[] = [];
+
+  if (fromWs && wsEvent) {
+    console.log(`📥 [WS] Processing RetopupAccepted event from WebSocket at block ${wsEvent.event.blockNumber}`);
+    events = [wsEvent.event as ethers.Log];
+  } else {
+    const filter = contract.filters.RetopupAccepted();
+    events = await contract.queryFilter(filter, fromBlock, toBlock);
+
+    if (events.length > 0) {
+      console.log(`📥 [HTTP] Found ${events.length} RetopupAccepted event(s) in blocks ${fromBlock} to ${toBlock}`);
+    }
+  }
 
   for (const event of events) {
     try {
-      if (!('args' in event)) continue;
-      const [user, backendCaller, amount, totalRetopups] = event.args as any;
+      let user: string;
+      let backendCaller: string;
+      let amount: bigint;
+      let totalRetopups: bigint;
+
+      if (fromWs && wsEvent) {
+        user = wsEvent.user;
+        backendCaller = wsEvent.backendCaller;
+        amount = wsEvent.amount;
+        totalRetopups = wsEvent.totalRetopups;
+      } else {
+        if (!('args' in event)) continue;
+        [user, backendCaller, amount, totalRetopups] = event.args as any;
+      }
+
       const walletAddress = user.toLowerCase();
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
+
+      const source = fromWs ? '[WS]' : '[HTTP]';
+      console.log(`${source} 🔍 Processing RetopupAccepted event for: ${walletAddress}`);
 
       const dbUser = await prisma.user.findUnique({
         where: { walletAddress }
@@ -343,40 +402,68 @@ const processRetopupAcceptedEvents = async (
               description: `Retopup #${totalRetopups} accepted by backend: ${backendCaller}`
             }
           });
-          console.log(`✅ RetopupAccepted: Wallet=${walletAddress}, Amount=${amountInTokens}, Count=${totalRetopups}`);
+          console.log(`${source} ✅ RetopupAccepted: Wallet=${walletAddress}, Amount=${amountInTokens}, Count=${totalRetopups}`);
         } else {
-          console.log(`⏭️  Retopup transaction already recorded: ${walletAddress}`);
+          console.log(`${source} ⏭️  Retopup transaction already recorded: ${walletAddress}`);
         }
 
-        console.log(`🔄 Processing retopup payout distribution...`);
+        console.log(`${source} 🔄 Processing retopup payout distribution...`);
         try {
           await processRetopupPayout(walletAddress);
         } catch (payoutError) {
-          console.error('❌ Error processing retopup payout:', payoutError);
+          console.error(`${source} ❌ Error processing retopup payout:`, payoutError);
         }
       } else {
-        console.log(`⚠️  RetopupAccepted for unknown user: ${walletAddress}`);
+        console.log(`${source} ⚠️  RetopupAccepted for unknown user: ${walletAddress}`);
       }
     } catch (error) {
-      console.error('Error processing RetopupAccepted event:', error);
+      const source = fromWs ? '[WS]' : '[HTTP]';
+      console.error(`${source} Error processing RetopupAccepted event:`, error);
     }
   }
 };
 
-const processPayoutExecutedEvents = async (
+export const processPayoutExecutedEvents = async (
   contract: ethers.Contract,
   fromBlock: bigint,
-  toBlock: bigint
+  toBlock: bigint,
+  fromWs: boolean = false,
+  wsEvent?: { user: string; amount: bigint; rewardType: string; event: ethers.Log }
 ) => {
-  const filter = contract.filters.PayoutExecuted();
-  const events = await contract.queryFilter(filter, fromBlock, toBlock);
+  let events: ethers.Log[] = [];
+
+  if (fromWs && wsEvent) {
+    console.log(`📥 [WS] Processing PayoutExecuted event from WebSocket at block ${wsEvent.event.blockNumber}`);
+    events = [wsEvent.event as ethers.Log];
+  } else {
+    const filter = contract.filters.PayoutExecuted();
+    events = await contract.queryFilter(filter, fromBlock, toBlock);
+
+    if (events.length > 0) {
+      console.log(`📥 [HTTP] Found ${events.length} PayoutExecuted event(s) in blocks ${fromBlock} to ${toBlock}`);
+    }
+  }
 
   for (const event of events) {
     try {
-      if (!('args' in event)) continue;
-      const [user, amount, rewardType] = event.args as any;
+      let user: string;
+      let amount: bigint;
+      let rewardType: string;
+
+      if (fromWs && wsEvent) {
+        user = wsEvent.user;
+        amount = wsEvent.amount;
+        rewardType = wsEvent.rewardType;
+      } else {
+        if (!('args' in event)) continue;
+        [user, amount, rewardType] = event.args as any;
+      }
+
       const walletAddress = user.toLowerCase();
       const amountInTokens = parseFloat(ethers.formatUnits(amount, 18));
+
+      const source = fromWs ? '[WS]' : '[HTTP]';
+      console.log(`${source} 🔍 Processing PayoutExecuted event for: ${walletAddress}`);
 
       const dbUser = await prisma.user.findUnique({
         where: { walletAddress }
@@ -403,7 +490,7 @@ const processPayoutExecutedEvents = async (
         });
 
         if (existingTransaction) {
-          console.log(`⏭️  PayoutExecuted transaction already processed: ${walletAddress}, Type=${rewardType}`);
+          console.log(`${source} ⏭️  PayoutExecuted transaction already processed: ${walletAddress}, Type=${rewardType}`);
           continue; 
         }
 
@@ -442,33 +529,58 @@ const processPayoutExecutedEvents = async (
           }
         });
 
-        console.log(`✅ PayoutExecuted: Wallet=${walletAddress}, Type=${rewardType}, Amount=${amountInTokens}`);
+        console.log(`${source} ✅ PayoutExecuted: Wallet=${walletAddress}, Type=${rewardType}, Amount=${amountInTokens}`);
       } else {
-        console.log(`⚠️  PayoutExecuted for unknown user: ${walletAddress}`);
+        console.log(`${source} ⚠️  PayoutExecuted for unknown user: ${walletAddress}`);
       }
     } catch (error) {
-      console.error('Error processing PayoutExecuted event:', error);
+      const source = fromWs ? '[WS]' : '[HTTP]';
+      console.error(`${source} Error processing PayoutExecuted event:`, error);
     }
   }
 };
 
-const processBatchPayoutCompletedEvents = async (
+export const processBatchPayoutCompletedEvents = async (
   contract: ethers.Contract,
   fromBlock: bigint,
-  toBlock: bigint
+  toBlock: bigint,
+  fromWs: boolean = false,
+  wsEvent?: { totalAmount: bigint; userCount: bigint; event: ethers.Log }
 ) => {
-  const filter = contract.filters.BatchPayoutCompleted();
-  const events = await contract.queryFilter(filter, fromBlock, toBlock);
+  let events: ethers.Log[] = [];
+
+  if (fromWs && wsEvent) {
+    console.log(`📥 [WS] Processing BatchPayoutCompleted event from WebSocket at block ${wsEvent.event.blockNumber}`);
+    events = [wsEvent.event as ethers.Log];
+  } else {
+    const filter = contract.filters.BatchPayoutCompleted();
+    events = await contract.queryFilter(filter, fromBlock, toBlock);
+
+    if (events.length > 0) {
+      console.log(`📥 [HTTP] Found ${events.length} BatchPayoutCompleted event(s) in blocks ${fromBlock} to ${toBlock}`);
+    }
+  }
 
   for (const event of events) {
     try {
-      if (!('args' in event)) continue;
-      const [totalAmount, userCount] = event.args as any;
-      const totalAmountInTokens = parseFloat(ethers.formatUnits(totalAmount, 18));
+      let totalAmount: bigint;
+      let userCount: bigint;
 
-      console.log(`✅ BatchPayoutCompleted: Total=${totalAmountInTokens}, Users=${userCount}, TX=${event.transactionHash}`);
+      if (fromWs && wsEvent) {
+        totalAmount = wsEvent.totalAmount;
+        userCount = wsEvent.userCount;
+      } else {
+        if (!('args' in event)) continue;
+        [totalAmount, userCount] = event.args as any;
+      }
+
+      const totalAmountInTokens = parseFloat(ethers.formatUnits(totalAmount, 18));
+      const source = fromWs ? '[WS]' : '[HTTP]';
+
+      console.log(`${source} ✅ BatchPayoutCompleted: Total=${totalAmountInTokens}, Users=${userCount}, TX=${event.transactionHash}`);
     } catch (error) {
-      console.error('Error processing BatchPayoutCompleted event:', error);
+      const source = fromWs ? '[WS]' : '[HTTP]';
+      console.error(`${source} Error processing BatchPayoutCompleted event:`, error);
     }
   }
 };
