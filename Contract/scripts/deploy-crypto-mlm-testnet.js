@@ -34,7 +34,6 @@ async function main() {
   if (!privateKey.startsWith("0x")) {
     console.log("⚠️  Warning: Private key missing '0x' prefix, adding it automatically...");
     privateKey = "0x" + privateKey;
-    // Update process.env so hardhat config can use it
     process.env.DEPLOYER_PRIVATE_KEY = privateKey;
   }
   
@@ -46,7 +45,6 @@ async function main() {
     console.error("   Expected length: 66");
     if (privateKey.length === 64) {
       console.error("\n   💡 Tip: Your key is missing the '0x' prefix");
-      console.error("   The script tried to add it, but the key should be 64 hex characters after '0x'");
     }
     process.exit(1);
   }
@@ -120,7 +118,7 @@ async function main() {
       "Test WBNB",
       "TWBNB",
       deployer.address,
-      hre.ethers.parseUnits("1000000", 18) // 1 million tokens
+      hre.ethers.parseUnits("1000000", 18)
     );
     await token.waitForDeployment();
     tokenAddress = await token.getAddress();
@@ -130,7 +128,6 @@ async function main() {
   } else {
     console.log("📝 Step 1: Using existing token:", tokenAddress);
     try {
-      // Try to read token info
       const tokenAbi = [
         "function name() view returns (string)",
         "function symbol() view returns (string)",
@@ -254,21 +251,88 @@ async function main() {
     console.log("   Transaction:", `https://testnet.bscscan.com/tx/${deploymentTx.hash}`);
   }
   
-  console.log("\n📋 Backend Configuration (backend-express/.env):\n");
-  console.log("BSC_RPC_URL=https://data-seed-prebsc-1-s1.binance.org:8545/");
+  // ✅ UPDATED: Different RPC URLs for Backend and Frontend
+  console.log("\n" + "=".repeat(80));
+  console.log("📋 BACKEND CONFIGURATION (backend-express/.env)");
+  console.log("=".repeat(80));
+  console.log("\n# ⚠️  IMPORTANT: Use a better RPC provider to avoid rate limits!");
+  console.log("# Recommended: Ankr (free, no signup required)\n");
+  
+  console.log("# Option 1: Ankr (Free, Better Rate Limits) ⭐ RECOMMENDED");
+  console.log("BSC_RPC_URL=https://rpc.ankr.com/bsc_testnet");
+  console.log("BSC_RPC_WS_URL=wss://rpc.ankr.com/bsc_testnet/ws\n");
+  
+  console.log("# Option 2: Binance Public (Free, but strict rate limits)");
+  console.log("# BSC_RPC_URL=https://data-seed-prebsc-1-s1.binance.org:8545/");
+  console.log("# BSC_RPC_WS_URL=wss://bsc-testnet-rpc.publicnode.com\n");
+  
+  console.log("# Contract Configuration");
   console.log(`CONTRACT_ADDRESS=${contractAddress}`);
   console.log(`TOKEN_ADDRESS=${tokenAddress}`);
   console.log(`BACKEND_PRIVATE_KEY=<private_key_of_backend_wallet>`);
-  console.log(`COMPANY_WALLET_ADDRESS=${companyWallet}`);
-  console.log("START_BLOCK=0");
-  console.log("POLLING_INTERVAL=5000");
+  console.log(`COMPANY_WALLET_ADDRESS=${companyWallet}\n`);
   
-  console.log("\n📋 Frontend Configuration (Frontend/.env.local):\n");
+  console.log("# Listener Configuration (fast polling for good RPC)");
+  console.log("START_BLOCK=0");
+  console.log("FAST_POLLING_INTERVAL=3000           # 3 seconds");
+  console.log("MAX_BLOCKS_PER_QUERY=20              # Process 20 blocks per chunk");
+  console.log("DELAY_BETWEEN_EVENT_TYPES=500        # 0.5 second delay");
+  console.log("MAX_CATCHUP_BLOCKS=5000              # Catch up last 5000 blocks max\n");
+  
+  console.log("# Database");
+  console.log("DATABASE_URL=postgresql://user:password@localhost:5432/crypto_mlm\n");
+  
+  console.log("# Redis");
+  console.log("REDIS_URL=redis://localhost:6379\n");
+  
+  console.log("=".repeat(80));
+  console.log("📋 FRONTEND CONFIGURATION (Frontend/.env.local)");
+  console.log("=".repeat(80));
+  console.log("\n# Contract Addresses");
   console.log(`NEXT_PUBLIC_CONTRACT_ADDRESS=${contractAddress}`);
-  console.log(`NEXT_PUBLIC_TOKEN_ADDRESS=${tokenAddress}`);
-  console.log("NEXT_PUBLIC_RPC_URL=https://data-seed-prebsc-1-s1.binance.org:8545/");
+  console.log(`NEXT_PUBLIC_TOKEN_ADDRESS=${tokenAddress}\n`);
+  
+  console.log("# Network Configuration");
+  console.log("# Option 1: Ankr (Free, Fast) ⭐ RECOMMENDED");
+  console.log("NEXT_PUBLIC_RPC_URL=https://rpc.ankr.com/bsc_testnet\n");
+  
+  console.log("# Option 2: Binance Public RPC");
+  console.log("# NEXT_PUBLIC_RPC_URL=https://data-seed-prebsc-1-s1.binance.org:8545/\n");
+  
   console.log("NEXT_PUBLIC_CHAIN_ID=97");
-  console.log("NEXT_PUBLIC_API_URL=YOUR_API_URL");
+  console.log("NEXT_PUBLIC_NETWORK_NAME=BSC Testnet\n");
+  
+  console.log("# API Configuration");
+  console.log("NEXT_PUBLIC_API_URL=http://localhost:8080  # Your backend URL\n");
+  
+  console.log("=".repeat(80));
+  console.log("📝 RPC PROVIDER RECOMMENDATIONS");
+  console.log("=".repeat(80));
+  console.log("\n🌟 BEST OPTIONS (No Rate Limit Issues):\n");
+  
+  console.log("1. Ankr (FREE - No Signup Required) ⭐ RECOMMENDED");
+  console.log("   HTTP:  https://rpc.ankr.com/bsc_testnet");
+  console.log("   WS:    wss://rpc.ankr.com/bsc_testnet/ws");
+  console.log("   Rate:  Much better than Binance public");
+  console.log("   Cost:  FREE\n");
+  
+  console.log("2. QuickNode (FREE Tier - 5 min signup)");
+  console.log("   Sign up: https://www.quicknode.com/");
+  console.log("   Rate:    10M requests/month");
+  console.log("   Speed:   Very Fast");
+  console.log("   Cost:    FREE tier available\n");
+  
+  console.log("3. GetBlock (FREE Tier)");
+  console.log("   Sign up: https://getblock.io/");
+  console.log("   Rate:    40K requests/day");
+  console.log("   Cost:    FREE tier available\n");
+  
+  console.log("⚠️  AVOID: Binance Public RPC (Very strict rate limits)");
+  console.log("   - Only use for quick testing");
+  console.log("   - Will block you after 10-20 requests");
+  console.log("   - Not suitable for production or development\n");
+  
+  console.log("=".repeat(80));
   
   console.log("\n🔐 Verify Contract on BSCScan:");
   console.log("   npx hardhat verify --network bscTestnet \\");
@@ -278,21 +342,45 @@ async function main() {
   console.log(`     ${backendWallet}`);
   
   if (isMockToken) {
-    console.log("\n⚠️  IMPORTANT NOTES:");
-    console.log("   1. You deployed a MOCK token for testing");
-    console.log("   2. To mint test tokens, call the mint() function on the token contract");
-    console.log("   3. For production, use the real WBNB token address");
-    console.log("   4. WBNB Testnet Address: 0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd");
+    console.log("\n" + "=".repeat(80));
+    console.log("⚠️  IMPORTANT: MOCK TOKEN DEPLOYED");
+    console.log("=".repeat(80));
+    console.log("1. You deployed a MOCK token for testing");
+    console.log("2. To mint test tokens, call the mint() function on the token contract");
+    console.log("3. For production, use the real WBNB token address");
+    console.log("4. WBNB Testnet Address: 0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd");
   }
   
-  console.log("\n📝 Next Steps:");
-  console.log("1. ✅ Copy the backend configuration to backend-express/.env");
-  console.log("2. ✅ Copy the frontend configuration to Frontend/.env.local");
-  console.log("3. 🔍 Verify the contract on BSCScan (optional but recommended)");
-  console.log("4. 🧪 Test the contract functions on testnet");
-  console.log("5. ⚠️  Test thoroughly before considering mainnet deployment");
-  
   console.log("\n" + "=".repeat(80));
+  console.log("📝 NEXT STEPS");
+  console.log("=".repeat(80));
+  console.log("\n1. ⭐ USE ANKR RPC (Immediate Fix):");
+  console.log("   Update backend-express/.env:");
+  console.log("   BSC_RPC_URL=https://rpc.ankr.com/bsc_testnet");
+  console.log("   BSC_RPC_WS_URL=wss://rpc.ankr.com/bsc_testnet/ws\n");
+  
+  console.log("2. ✅ Copy backend configuration to backend-express/.env");
+  console.log("3. ✅ Copy frontend configuration to Frontend/.env.local");
+  console.log("4. 🔍 Verify contract on BSCScan (optional but recommended)");
+  console.log("5. 🧪 Test contract functions on testnet");
+  console.log("6. 🚀 Start backend: npm run dev");
+  console.log("7. 🌐 Start frontend: npm run dev");
+  console.log("8. ⚠️  Test thoroughly before mainnet deployment\n");
+  
+  console.log("=".repeat(80));
+  console.log("💡 TROUBLESHOOTING");
+  console.log("=".repeat(80));
+  console.log("\nIf you see 'Rate Limit' or 'Too Many Requests' errors:");
+  console.log("1. Switch to Ankr RPC (see configuration above)");
+  console.log("2. Or sign up for QuickNode (free tier)");
+  console.log("3. Or test locally with Hardhat node (unlimited requests)\n");
+  
+  console.log("For local testing:");
+  console.log("   Terminal 1: npx hardhat node");
+  console.log("   Terminal 2: Update .env with BSC_RPC_URL=http://127.0.0.1:8545");
+  console.log("   Terminal 3: npm run dev\n");
+  
+  console.log("=".repeat(80));
 }
 
 main()
@@ -315,4 +403,3 @@ main()
     
     process.exit(1);
   });
-

@@ -1,0 +1,184 @@
+saransh@saransh-ThinkPad-E14-Gen-2:~/crypto-mlm/Contract$ npx hardhat run scripts/deploy-crypto-mlm-testnet.js --network bscTestnet
+
+🚀 Deploying CryptoMLMTransactions to BSC Testnet...
+
+⚠️  Warning: Private key missing '0x' prefix, adding it automatically...
+📋 Environment Configuration:
+   ✅ DEPLOYER_PRIVATE_KEY: Set (0x7756...9d97)
+   ✅ COMPANY_WALLET: 0xccb543e67985f30ff741d77308320929a4c6ef25
+   ✅ BACKEND_WALLET: 0xccb543e67985f30ff741d77308320929a4c6ef25
+   ℹ️  TOKEN_ADDRESS: Not set (will deploy mock token)
+   ✅ BSC_TESTNET_RPC: https://bsc-testnet-rpc.publicnode.com
+
+📝 Deploying with account: 0xcCb543e67985f30Ff741D77308320929a4c6ef25
+💰 Account balance: 0.17543301 BNB
+✅ Sufficient balance for deployment
+
+📝 Step 1: Deploying Mock BEP-20 Token...
+✅ Mock Token deployed to: 0x0AF1Aa6e56386DeD9cE928461357BCB89051C4C5
+   ⚠️  This is a MOCK token for testing only!
+
+📝 Step 2: Wallet Configuration:
+   Company Wallet: 0xccb543e67985f30ff741d77308320929a4c6ef25
+   Backend Wallet: 0xccb543e67985f30ff741d77308320929a4c6ef25
+
+📝 Step 3: Deploying CryptoMLMTransactions Contract...
+   This may take 30-60 seconds...
+
+   ⏳ Waiting for transaction confirmation...
+✅ CryptoMLMTransactions deployed to: 0x15da15c0eBe87bBe9fe3EFB5dD883d2c5fabb2e3
+   ⏳ Waiting for block confirmations...
+
+📋 Contract Configuration:
+   Entry Price: 0.02 BNB
+   Retopup Price: 0.04 BNB
+
+📝 Step 4: Saving deployment information...
+✅ Deployment info saved to: ./deployments/bscTestnet-1765904205221.json
+✅ Latest deployment saved to: ./deployments/bscTestnet-latest.json
+
+================================================================================
+🎉 DEPLOYMENT SUCCESSFUL!
+================================================================================
+
+📋 Contract Addresses:
+   CryptoMLMTransactions: 0x15da15c0eBe87bBe9fe3EFB5dD883d2c5fabb2e3
+   Token Address: 0x0AF1Aa6e56386DeD9cE928461357BCB89051C4C5 (Mock Token)
+   Company Wallet: 0xccb543e67985f30ff741d77308320929a4c6ef25
+   Backend Wallet: 0xccb543e67985f30ff741d77308320929a4c6ef25
+
+🔍 View on BSCScan Testnet:
+   Contract: https://testnet.bscscan.com/address/0x15da15c0eBe87bBe9fe3EFB5dD883d2c5fabb2e3
+   Token: https://testnet.bscscan.com/address/0x0AF1Aa6e56386DeD9cE928461357BCB89051C4C5
+   Transaction: https://testnet.bscscan.com/tx/0xf7f6a5484bbd4d028ef3bf8e3acae1ec7b8087e33804701da81b9edb1b6bd564
+
+================================================================================
+📋 BACKEND CONFIGURATION (backend-express/.env)
+================================================================================
+
+# ⚠️  IMPORTANT: Use a better RPC provider to avoid rate limits!
+# Recommended: Ankr (free, no signup required)
+
+# Option 1: Ankr (Free, Better Rate Limits) ⭐ RECOMMENDED
+BSC_RPC_URL=https://rpc.ankr.com/bsc_testnet
+BSC_RPC_WS_URL=wss://rpc.ankr.com/bsc_testnet/ws
+
+# Option 2: Binance Public (Free, but strict rate limits)
+# BSC_RPC_URL=https://data-seed-prebsc-1-s1.binance.org:8545/
+# BSC_RPC_WS_URL=wss://bsc-testnet-rpc.publicnode.com
+
+# Contract Configuration
+CONTRACT_ADDRESS=0x15da15c0eBe87bBe9fe3EFB5dD883d2c5fabb2e3
+TOKEN_ADDRESS=0x0AF1Aa6e56386DeD9cE928461357BCB89051C4C5
+BACKEND_PRIVATE_KEY=<private_key_of_backend_wallet>
+COMPANY_WALLET_ADDRESS=0xccb543e67985f30ff741d77308320929a4c6ef25
+
+# Listener Configuration (fast polling for good RPC)
+START_BLOCK=0
+FAST_POLLING_INTERVAL=3000           # 3 seconds
+MAX_BLOCKS_PER_QUERY=20              # Process 20 blocks per chunk
+DELAY_BETWEEN_EVENT_TYPES=500        # 0.5 second delay
+MAX_CATCHUP_BLOCKS=5000              # Catch up last 5000 blocks max
+
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/crypto_mlm
+
+# Redis
+REDIS_URL=redis://localhost:6379
+
+================================================================================
+📋 FRONTEND CONFIGURATION (Frontend/.env.local)
+================================================================================
+
+# Contract Addresses
+NEXT_PUBLIC_CONTRACT_ADDRESS=0x15da15c0eBe87bBe9fe3EFB5dD883d2c5fabb2e3
+NEXT_PUBLIC_TOKEN_ADDRESS=0x0AF1Aa6e56386DeD9cE928461357BCB89051C4C5
+
+# Network Configuration
+# Option 1: Ankr (Free, Fast) ⭐ RECOMMENDED
+NEXT_PUBLIC_RPC_URL=https://rpc.ankr.com/bsc_testnet
+
+# Option 2: Binance Public RPC
+# NEXT_PUBLIC_RPC_URL=https://data-seed-prebsc-1-s1.binance.org:8545/
+
+NEXT_PUBLIC_CHAIN_ID=97
+NEXT_PUBLIC_NETWORK_NAME=BSC Testnet
+
+# API Configuration
+NEXT_PUBLIC_API_URL=http://localhost:8080  # Your backend URL
+
+================================================================================
+📝 RPC PROVIDER RECOMMENDATIONS
+================================================================================
+
+🌟 BEST OPTIONS (No Rate Limit Issues):
+
+1. Ankr (FREE - No Signup Required) ⭐ RECOMMENDED
+   HTTP:  https://rpc.ankr.com/bsc_testnet
+   WS:    wss://rpc.ankr.com/bsc_testnet/ws
+   Rate:  Much better than Binance public
+   Cost:  FREE
+
+2. QuickNode (FREE Tier - 5 min signup)
+   Sign up: https://www.quicknode.com/
+   Rate:    10M requests/month
+   Speed:   Very Fast
+   Cost:    FREE tier available
+
+3. GetBlock (FREE Tier)
+   Sign up: https://getblock.io/
+   Rate:    40K requests/day
+   Cost:    FREE tier available
+
+⚠️  AVOID: Binance Public RPC (Very strict rate limits)
+   - Only use for quick testing
+   - Will block you after 10-20 requests
+   - Not suitable for production or development
+
+================================================================================
+
+🔐 Verify Contract on BSCScan:
+   npx hardhat verify --network bscTestnet \
+     0x15da15c0eBe87bBe9fe3EFB5dD883d2c5fabb2e3 \
+     0x0AF1Aa6e56386DeD9cE928461357BCB89051C4C5 \
+     0xccb543e67985f30ff741d77308320929a4c6ef25 \
+     0xccb543e67985f30ff741d77308320929a4c6ef25
+
+================================================================================
+⚠️  IMPORTANT: MOCK TOKEN DEPLOYED
+================================================================================
+1. You deployed a MOCK token for testing
+2. To mint test tokens, call the mint() function on the token contract
+3. For production, use the real WBNB token address
+4. WBNB Testnet Address: 0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd
+
+================================================================================
+📝 NEXT STEPS
+================================================================================
+
+1. ⭐ USE ANKR RPC (Immediate Fix):
+   Update backend-express/.env:
+   BSC_RPC_URL=https://rpc.ankr.com/bsc_testnet
+   BSC_RPC_WS_URL=wss://rpc.ankr.com/bsc_testnet/ws
+
+2. ✅ Copy backend configuration to backend-express/.env
+3. ✅ Copy frontend configuration to Frontend/.env.local
+4. 🔍 Verify contract on BSCScan (optional but recommended)
+5. 🧪 Test contract functions on testnet
+6. 🚀 Start backend: npm run dev
+7. 🌐 Start frontend: npm run dev
+8. ⚠️  Test thoroughly before mainnet deployment
+
+================================================================================
+💡 TROUBLESHOOTING
+================================================================================
+
+If you see 'Rate Limit' or 'Too Many Requests' errors:
+1. Switch to Ankr RPC (see configuration above)
+2. Or sign up for QuickNode (free tier)
+3. Or test locally with Hardhat node (unlimited requests)
+
+For local testing:
+   Terminal 1: npx hardhat node
+   Terminal 2: Update .env with BSC_RPC_URL=http://127.0.0.1:8545
+   Terminal 3: npm run dev
