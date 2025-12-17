@@ -208,6 +208,43 @@ export const transactionApi = {
     const data = await response.json();
     return data.total;
   },
+
+  // GET /api/transactions (Authenticated endpoint)
+  getTransactions: async (
+    accessToken: string,
+    options?: {
+      type?: string;
+      page?: number;
+      size?: number;
+      days?: number;
+      aggregate?: boolean;
+      limit?: number;
+    }
+  ) => {
+    const params = new URLSearchParams();
+    if (options?.type) params.append('type', options.type);
+    if (options?.page !== undefined) params.append('page', String(options.page));
+    if (options?.size) params.append('size', String(options.size));
+    if (options?.days) params.append('days', String(options.days));
+    if (options?.aggregate) params.append('aggregate', 'true');
+    if (options?.limit) params.append('limit', String(options.limit));
+
+    const url = `${API_BASE_URL}/transactions${params.toString() ? '?' + params.toString() : ''}`;
+    
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Failed to fetch transactions' }));
+      throw new Error(error.error || error.message || 'Failed to fetch transactions');
+    }
+
+    return response.json();
+  },
 };
 
 // Stats API - NOT MOUNTED YET (exists in code but not in server.ts)

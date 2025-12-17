@@ -2,14 +2,16 @@
 
 import { useState } from 'react'
 import { useWeb3 } from '@/contexts/Web3Context'
-import { FaWallet, FaSignOutAlt, FaBars, FaTimes, FaSpinner } from 'react-icons/fa'
+import { FaSignInAlt, FaSignOutAlt, FaBars, FaTimes, FaWallet, FaSpinner } from 'react-icons/fa'
 import Link from 'next/link'
 import Image from 'next/image'
+import { usePathname } from 'next/navigation'
 
 export default function Navbar() {
   const { account, connectWallet, disconnectWallet, chainId } = useWeb3()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isConnecting, setIsConnecting] = useState(false)
+  const pathname = usePathname()
 
   const formatAddress = (addr: string) => {
     return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`
@@ -25,18 +27,31 @@ export default function Navbar() {
   }
 
   const menuItems = [
-    { name: 'Main', href: '#main' },
+    { name: 'Main', href: '/' },
     { name: 'Direct income', href: '/direct-income' },
     { name: 'Pool income', href: '/pool-income' },
     { name: 'Level income', href: '/level-income' },
   ]
 
-  const handleConnectWallet = async () => {
-    setIsConnecting(true)
-    await connectWallet()
-    console.log('account:', account)
-    setIsConnecting(false)
+  const isActive = (href: string) => {
+    if (href === '/') {
+      return pathname === '/' || pathname === '/dashboard'
+    }
+    return pathname === href
   }
+
+  const handleConnectWallet = async () => {
+    try {
+      setIsConnecting(true)
+      await connectWallet()
+    } catch (error) {
+      console.error('Connection error:', error)
+    } finally {
+      setIsConnecting(false)
+    }
+  }
+
+  const isRegistrationPage = pathname === '/registration'
 
   return (
     <nav className={`glass-effect sticky w-full top-0 z-50 shadow-lg ${isMobileMenuOpen && 'h-screen'}`}>
@@ -62,7 +77,11 @@ export default function Navbar() {
               <Link
                 key={item.name}
                 href={item.href}
-                className="text-white hover:text-blue-400 transition-colors font-medium"
+                className={`transition-colors font-medium ${
+                  isActive(item.href)
+                    ? 'text-blue-400 font-bold border-b-2 border-blue-400 pb-1'
+                    : 'text-white hover:text-blue-400'
+                }`}
               >
                 {item.name}
               </Link>
@@ -78,16 +97,32 @@ export default function Navbar() {
             )}
             
             {!account ? (
-              <Link href="/login">
+              isRegistrationPage ? (
                 <button
-                  className="flex items-center space-x-2 bg-blue-gradient-primary hover:bg-white text-white px-6 py-5 rounded-lg transition-all cursor-pointer"
+                  onClick={handleConnectWallet}
                   disabled={isConnecting}
+                  className="flex items-center space-x-2 bg-blue-gradient-primary hover:opacity-90 disabled:opacity-50 text-white px-6 py-3 rounded-lg transition-all"
                 >
-                  <FaWallet />
-                  <span>Connect Wallet</span>
-                  {isConnecting && <FaSpinner className="animate-spin" />}
+                  {isConnecting ? (
+                    <>
+                      <FaSpinner className="animate-spin" />
+                      <span>Connecting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FaWallet />
+                      <span>Connect Wallet</span>
+                    </>
+                  )}
                 </button>
-              </Link>
+              ) : (
+                <Link href="/login">
+                  <button className="flex items-center space-x-2 bg-blue-gradient-primary hover:opacity-90 text-white px-6 py-3 rounded-lg transition-all">
+                    <FaSignInAlt />
+                    <span>Sign In</span>
+                  </button>
+                </Link>
+              )
             ) : (
               <div className="flex items-center space-x-3">
                 <span className="text-sm font-medium text-gray-700 bg-gray-100 px-4 py-2 rounded-lg">
@@ -118,14 +153,18 @@ export default function Navbar() {
           <div className="md:hidden mt-4 pb-4 space-y-4 border-t border-gray-200/20 pt-4">
             {/* Menu Items */}
             {menuItems.map((item) => (
-              <a
+              <Link
                 key={item.name}
                 href={item.href}
-                className="block text-white hover:text-blue-400 transition-colors font-medium py-2"
+                className={`block transition-colors font-medium py-2 ${
+                  isActive(item.href)
+                    ? 'text-blue-400 font-bold'
+                    : 'text-white hover:text-blue-400'
+                }`}
                 onClick={() => setIsMobileMenuOpen(false)}
               >
                 {item.name}
-              </a>
+              </Link>
             ))}
             
             {/* Network Info */}
@@ -140,18 +179,38 @@ export default function Navbar() {
             {/* Wallet Section */}
             <div className="pt-2">
               {!account ? (
-                <Link href="/login">
+                isRegistrationPage ? (
                   <button
                     onClick={() => {
+                      handleConnectWallet()
                       setIsMobileMenuOpen(false)
                     }}
-                    className="flex items-center justify-center space-x-2 bg-blue-gradient-primary hover:bg-white text-white px-6 py-3 rounded-lg transition-all w-full"
+                    disabled={isConnecting}
+                    className="flex items-center justify-center space-x-2 bg-blue-gradient-primary hover:opacity-90 disabled:opacity-50 text-white px-6 py-3 rounded-lg transition-all w-full"
                   >
-                    <FaWallet />
-                    <span>Connect Wallet</span>
+                    {isConnecting ? (
+                      <>
+                        <FaSpinner className="animate-spin" />
+                        <span>Connecting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <FaWallet />
+                        <span>Connect Wallet</span>
+                      </>
+                    )}
                   </button>
-
-                </Link>
+                ) : (
+                  <Link href="/login">
+                    <button
+                      onClick={() => setIsMobileMenuOpen(false)}
+                      className="flex items-center justify-center space-x-2 bg-blue-gradient-primary hover:opacity-90 text-white px-6 py-3 rounded-lg transition-all w-full"
+                    >
+                      <FaSignInAlt />
+                      <span>Sign In</span>
+                    </button>
+                  </Link>
+                )
               ) : (
                 <div className="space-y-2">
                   <div className="text-sm font-medium text-gray-700 bg-gray-100 px-4 py-2 rounded-lg text-center">
