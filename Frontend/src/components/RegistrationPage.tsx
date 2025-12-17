@@ -1,66 +1,33 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { FaEdit, FaSpinner } from 'react-icons/fa'
 import { useWeb3 } from '@/contexts/Web3Context'
 import { useAuth } from '@/contexts/AuthContext'
-import { ethers } from 'ethers'
 import toast from 'react-hot-toast'
-import { switchToHardhatNetwork, checkHardhatNodeRunning } from '@/utils/networkHelpers'
 import { useRouter } from 'next/navigation'
-import { API_URL } from '@/utils/constants'
 import { authApi } from '@/services/api.service'
 
 export default function RegistrationPage() {
   const router = useRouter()
   const [uplineId, setUplineId] = useState('1')
   const [isEditing, setIsEditing] = useState(false)
-  const [registerStep, setRegisterStep] = useState<{
-    tokenApproval: boolean,
-    registration: boolean,
-  }>({
-    tokenApproval: true,
-    registration: false,
-  })
   const [loading, setLoading] = useState<{
-    isWalletConnecting: boolean,
-    isApproving: boolean,
     isRegistering: boolean,
   }>({
-    isWalletConnecting: false,
-    isApproving: false,
     isRegistering: false,
   })
-  const { connectWallet, account, contract, tokenContract, provider } = useWeb3()
+  const { connectWallet, account, contract, tokenContract } = useWeb3()
   const { loginByWallet } = useAuth()
 
-  const handleConnectWallet = async () => {
-    setLoading(prev => ({ ...prev, isWalletConnecting: true }))
-    await connectWallet()
-    setLoading(prev => ({ ...prev, isWalletConnecting: false }))
-  }
-
-  if (!account) {
-    return (
-      <div className="h-full flex flex-col items-center justify-center px-4 py-12 gap-6" >
-        <h1>Connect Your Wallet</h1>
-        <button onClick={handleConnectWallet} className="bg-blue-gradient-primary text-white px-6 py-3 rounded-lg transition-all flex gap-2 items-center justify-center">
-          Connect MetaMask
-          {loading.isWalletConnecting && <FaSpinner className="animate-spin" />}
-        </button>
-      </div>
-    )
-  }
-
-  // This function is no longer needed - backend handles everything
-  // Keeping for reference but not used
-
-  const handleApprove = async () => {
-    if (!tokenContract || !contract || !provider || !account) {
-      toast.error('Contract not initialized or wallet not connected')
-      return
-    }
-
+  /**
+   * Simplified Registration Flow:
+   * 1. Connect wallet (if not connected)
+   * 2. Check token allowance
+   * 3. If insufficient allowance, approve tokens
+   * 4. Call backend API to register (backend calls contract.register())
+   */
+  const handleApproveAndRegister = async () => {
     // Validate upline ID first
     const uplineIdValue = uplineId.trim()
     if (!uplineIdValue) {
@@ -69,171 +36,63 @@ export default function RegistrationPage() {
     }
 
     try {
-      setLoading(prev => ({ ...prev, isApproving: true }))
-      
-      // Check if contract is deployed
-      const contractAddress = await contract.getAddress()
-      const contractCode = await provider.getCode(contractAddress)
-      const network = await provider.getNetwork()
-      const blockNumber = await provider.getBlockNumber()
-      const expectedChainId = BigInt(1337) // Hardhat local network (matches hardhat.config.js)
+      setLoading({ isRegistering: true })
 
-      // Check if user is on the wrong network
-      if (network.chainId !== expectedChainId) {
+      // Step 1: Connect wallet if not connected
+      if (!account) {
+        toast.loading('Connecting wallet...')
+        await connectWallet()
         toast.dismiss()
-        
-        // Check if Hardhat node is running
-        const isHardhatRunning = await checkHardhatNodeRunning()
-        if (!isHardhatRunning) {
-          toast.error(
-            `❌ Hardhat node is not running!\n\n` +
-            `Please start Hardhat node first:\n` +
-            `cd Contract && npx hardhat node\n\n` +
-            `Then try again.`,
-            { duration: 15000 }
-          )
-          setLoading(prev => ({ ...prev, isApproving: false }))
-          return
-        }
-
-        // Try to automatically switch network
-        try {
-          toast.loading('Switching to Hardhat Local network...')
-          await switchToHardhatNetwork()
-          toast.dismiss()
-          toast.success('✅ Switched to Hardhat Local network! Please try again.')
-          setLoading(prev => ({ ...prev, isApproving: false }))
-          // Reload page after a short delay to pick up the new network
-          setTimeout(() => {
-            window.location.reload()
-          }, 1000)
-          return
-        } catch (switchError: any) {
-          toast.dismiss()
-          const errorMsg = `❌ Wrong Network!\n\n` +
-            `You're connected to: ${network.name} (Chain ID: ${network.chainId})\n` +
-            `Required: Hardhat Local (Chain ID: 1337)\n\n` +
-            `Please switch to Hardhat Local network in MetaMask:\n` +
-            `1) Click MetaMask network dropdown\n` +
-            `2) Select "Hardhat Local" or add it:\n` +
-            `   - Network Name: Hardhat Local\n` +
-            `   - RPC URL: http://127.0.0.1:8545\n` +
-            `   - Chain ID: 1337\n` +
-            `   - Currency: ETH\n\n` +
-            `Error: ${switchError.message}`
-          toast.error(errorMsg, { duration: 20000 })
-          setLoading(prev => ({ ...prev, isApproving: false }))
-          return
-        }
       }
-      
-      // Check if contract is deployed
-      if (contractCode === '0x' || !contractCode) {
-        toast.dismiss()
-        const errorMsg = `❌ Contract not deployed at ${contractAddress}!\n\n` +
-          `Network: ${network.name} (Chain ID: ${network.chainId})\n` +
-          `Block: ${blockNumber}\n\n` +
-          `⚠️ If you restarted Hardhat node, you need to redeploy:\n` +
-          `1) cd Contract && npx hardhat node (keep running)\n` +
-          `2) In new terminal: npx hardhat run deploy-local.js --network localhost\n` +
-          `3) Update Frontend/.env.local with new addresses`
-        toast.error(errorMsg, { duration: 15000 })
-        setLoading(prev => ({ ...prev, isApproving: false }))
+
+      // Wait for Web3 context to be ready
+      if (!contract || !tokenContract) {
+        toast.error('Please wait for wallet to connect, then try again')
+        setLoading({ isRegistering: false })
         return
       }
-      
-      // Get the 20 USDT amount from contract
+
+      // Step 2: Get contract address and entry price
+      const contractAddress = await contract.getAddress()
       const entryPrice = await contract.entryPrice()
       
-      toast.loading('Approving tokens...')
-      // Tell USDT contract: "Allow MLM contract to spend 20 USDT"
-      const tx = await tokenContract.approve(
-        contractAddress, 
-        entryPrice
-      )
+      // Step 3: Check current token allowance
+      const currentAllowance = await tokenContract.allowance(account, contractAddress)
       
-      // Wait for transaction to complete on blockchain
-      await tx.wait()
-      
-      toast.dismiss()
-      toast.success('✅ Approval successful! Now registering...')
-      setLoading(prev => ({ ...prev, isApproving: false }))
-      
-      // Move to registration step
-      setRegisterStep({
-        tokenApproval: false,
-        registration: true
-      })
-      
-      // Automatically trigger registration after approval
-      await handleRegistration()
-    } catch (error: any) {
-      console.error('Approval error:', error)
-      toast.dismiss()
-      
-      // Provide more helpful error messages
-      if (error.message && error.message.includes('could not decode result data')) {
-        const network = await provider.getNetwork()
-        if (network.chainId !== BigInt(1337)) {
-          toast.error(
-            '❌ Wrong Network! Switch to Hardhat Local (Chain ID: 1337) in MetaMask. The contract is only deployed on the local network.',
-            { duration: 15000 }
-          )
-        } else {
-          toast.error(
-            '❌ Contract not deployed at this address! Deploy first: 1) cd Contract, 2) npx hardhat run deploy-local.js --network localhost, 3) Update Frontend/.env.local',
-            { duration: 10000 }
-          )
-        }
+      // Step 4: If allowance is insufficient, approve tokens
+      if (currentAllowance < entryPrice) {
+        toast.loading('Approving tokens... Please confirm in MetaMask')
+        
+        const approveTx = await tokenContract.approve(contractAddress, entryPrice)
+        toast.loading('Waiting for approval confirmation...')
+        await approveTx.wait()
+        
+        toast.dismiss()
+        toast.success('✅ Token approval successful!')
       } else {
-        toast.error('❌ Approval failed: ' + (error.reason || error.message || 'Unknown error'))
+        toast.success('✅ Token allowance already sufficient')
       }
-       
-      setLoading(prev => ({ ...prev, isApproving: false }))
-      setRegisterStep({
-        tokenApproval: true,
-        registration: false
-      })
-    }
-  }
-
-  // New simplified registration handler - backend does everything
-  const handleRegistration = async () => {
-    if (!account) {
-      toast.error('Please connect your wallet first')
-      return
-    }
-
-    // Validate upline ID
-    const uplineIdValue = uplineId.trim()
-    if (!uplineIdValue) {
-      toast.error('Please enter a valid upline ID')
-      return
-    }
-
-    try {
-      setLoading(prev => ({ ...prev, isRegistering: true }))
+      
+      // Step 5: Call backend API to register (backend will call contract.register())
       toast.loading('Registering on blockchain... This may take a few moments.')
-
-      // Call backend API - backend handles DB creation + blockchain registration
       const result = await authApi.registerUser(account, uplineIdValue)
 
       toast.dismiss()
 
       if (!result.canRegister) {
         toast.error(result.reason || 'Registration failed')
-        setLoading(prev => ({ ...prev, isRegistering: false }))
+        setLoading({ isRegistering: false })
         return
       }
 
-      // Store tokens in AuthContext for future authenticated requests
+      // Step 6: Login the user with tokens from backend
       if (result.accessToken && result.refreshToken) {
         await loginByWallet(account)
       }
 
       toast.success(`🎉 Registration successful! Transaction: ${result.txHash?.substring(0, 10)}...`)
       
-      setLoading(prev => ({ ...prev, isRegistering: false }))
+      setLoading({ isRegistering: false })
       
       // Redirect to dashboard after 2 seconds
       setTimeout(() => {
@@ -246,25 +105,21 @@ export default function RegistrationPage() {
       
       const errorMessage = error.message || error.reason || 'Registration failed'
       
-      if (errorMessage.includes('Insufficient token allowance')) {
-        toast.error('Please approve tokens first!')
-        setRegisterStep({
-          tokenApproval: true,
-          registration: false
-        })
+      // Handle specific errors
+      if (errorMessage.includes('User denied') || errorMessage.includes('user rejected')) {
+        toast.error('❌ Transaction rejected by user')
       } else if (errorMessage.includes('already exists')) {
-        toast.error('You are already registered!')
-        setTimeout(() => {
-          router.push('/')
-        }, 2000)
+        toast.error('❌ You are already registered!')
+        setTimeout(() => router.push('/'), 2000)
+      } else if (errorMessage.includes('Insufficient token allowance')) {
+        toast.error('❌ Please try again - token approval may have failed')
       } else {
         toast.error('❌ Registration failed: ' + errorMessage)
       }
       
-      setLoading(prev => ({ ...prev, isRegistering: false }))
+      setLoading({ isRegistering: false })
     }
   }
-
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12">
@@ -304,44 +159,25 @@ export default function RegistrationPage() {
               </div>
 
               <div className="space-y-4">
-                {/* Step 1: Approve Tokens */}
+                {/* Single Button: Approve & Register */}
                 <button
-                  onClick={handleApprove}
-                  disabled={loading.isApproving || !registerStep.tokenApproval || loading.isRegistering}
+                  onClick={handleApproveAndRegister}
+                  disabled={loading.isRegistering || !uplineId.trim()}
                   className="flex items-center justify-center space-x-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 disabled:from-gray-500 disabled:to-gray-600 disabled:cursor-not-allowed text-white px-8 py-4 rounded-lg transition-all w-full text-lg font-bold shadow-lg uppercase"
                 >
-                  {loading.isApproving ? (
+                  {loading.isRegistering ? (
                     <>
                       <FaSpinner className="animate-spin" />
-                      <span>APPROVING TOKENS...</span>
-                    </>
-                  ) : loading.isRegistering ? (
-                    <>
-                      <FaSpinner className="animate-spin" />
-                      <span>REGISTERING...</span>
+                      <span>PROCESSING...</span>
                     </>
                   ) : (
-                    <span>1. APPROVE TOKENS & REGISTER</span>
+                    <span>APPROVE & REGISTER</span>
                   )}
                 </button>
-
-                {/* Step 2: Manual Registration (if approval succeeded but registration didn't auto-trigger) */}
-                {registerStep.registration && !loading.isApproving && (
-                  <button
-                    onClick={handleRegistration}
-                    disabled={loading.isRegistering}
-                    className="flex items-center justify-center space-x-3 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 disabled:from-gray-500 disabled:to-gray-600 disabled:cursor-not-allowed text-white px-8 py-4 rounded-lg transition-all w-full text-lg font-bold shadow-lg uppercase"
-                  >
-                    {loading.isRegistering ? (
-                      <>
-                        <FaSpinner className="animate-spin" />
-                        <span>REGISTERING...</span>
-                      </>
-                    ) : (
-                      <span>2. COMPLETE REGISTRATION</span>
-                    )}
-                  </button>
-                )}
+                
+                <p className="text-gray-400 text-sm text-center">
+                  Click to approve tokens and complete registration in one step
+                </p>
               </div>
             </div>
           </div>
