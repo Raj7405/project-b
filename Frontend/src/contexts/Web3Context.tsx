@@ -62,7 +62,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       const tokenContract = new ethers.Contract(tokenAddress, TOKEN_ABI, signer)
 
       // Check if contract is actually deployed (has code)
-      const contractCode = await provider.getCode(contractAddress)
+      // const contractCode = await provider.getCode(contractAddress)
       // if (contractCode === '0x') {
       //   toast.error('No contract found at this address! Please deploy contracts first.')
       //   throw new Error('Contract not deployed at the specified address.')
