@@ -16,7 +16,13 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(helmet());
-app.use(cors());
+// CORS configuration - allow frontend origin
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-refresh-token']
+}));
 app.use(express.json());
 app.use(morgan('dev'));
 
@@ -54,23 +60,30 @@ app.listen(PORT, async () => {
 
   // Start blockchain event listener
   // WebSocket listener is optional - app will work with HTTP polling if WS fails
-  try {
-    await startBlockchainWsListener();
-  } catch (error: any) {
-    const errorMsg = error?.message || String(error);
-    console.warn('⚠️  WebSocket listener failed to start (continuing with HTTP polling):', errorMsg);
-    console.warn('   This is normal if BSC_WS_RPC is not set, invalid, or using HTTP URL.');
-    console.warn('   The app will use HTTP polling which works reliably.');
-  }
-
-  // // HTTP polling listener (always start this as fallback)
   // try {
-  //   await startBlockchainListener();
-  //   console.log('✅ HTTP polling blockchain listener started');
-  // } catch (error) {
-  //   console.error('❌ Failed to start HTTP polling listener:', error);
-  //   console.error('   This is critical - blockchain events will not be processed!');
+  //   await startBlockchainWsListener();
+  // } catch (error: any) {
+  //   const errorMsg = error?.message || String(error);
+  //   console.warn('⚠️  WebSocket listener failed to start (continuing with HTTP polling):', errorMsg);
+  //   console.warn('   This is normal if BSC_WS_RPC is not set, invalid, or using HTTP URL.');
+  //   console.warn('   The app will use HTTP polling which works reliably.');
   // }
+
+  // HTTP polling listener (optional - can be disabled via ENABLE_BLOCKCHAIN_LISTENER=false)
+  const enableListener = process.env.ENABLE_BLOCKCHAIN_LISTENER !== 'false';
+  
+  if (enableListener) {
+    try {
+      await startBlockchainListener();
+      console.log('✅ HTTP polling blockchain listener started');
+    } catch (error) {
+      console.error('❌ Failed to start HTTP polling listener:', error);
+      console.error('   This is critical - blockchain events will not be processed!');
+    }
+  } else {
+    console.log('⏭️  Blockchain listener disabled (ENABLE_BLOCKCHAIN_LISTENER=false)');
+    console.log('   ⚠️  Warning: Blockchain events will not be processed automatically!');
+  }
 });
 
 export default app;

@@ -14,6 +14,21 @@ const HARDHAT_NETWORK = {
   blockExplorerUrls: null,
 }
 
+const BSC_TESTNET = {
+  chainId: '0x61', // 97 in hex
+  chainName: 'BSC Testnet',
+  nativeCurrency: {
+    name: 'BNB',
+    symbol: 'BNB',
+    decimals: 18,
+  },
+  rpcUrls: [
+    'https://bsc-testnet.publicnode.com',
+    'https://data-seed-prebsc-1-s1.binance.org:8545',
+  ],
+  blockExplorerUrls: ['https://testnet.bscscan.com'],
+}
+
 /**
  * Switch to Hardhat Local network in MetaMask
  * @returns Promise<boolean> - true if successful, false otherwise
@@ -50,6 +65,46 @@ export async function switchToHardhatNetwork(): Promise<boolean> {
     } else {
       console.error('Failed to switch network:', switchError)
       throw new Error('Failed to switch to Hardhat Local network')
+    }
+  }
+}
+
+/**
+ * Switch to BSC Testnet in MetaMask
+ * @returns Promise<boolean> - true if successful, false otherwise
+ */
+export async function switchToBSCTestnet(): Promise<boolean> {
+  if (typeof window.ethereum === 'undefined') {
+    throw new Error('MetaMask is not installed')
+  }
+
+  try {
+    // Try to switch to the network
+    await window.ethereum.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: BSC_TESTNET.chainId }],
+    })
+    return true
+  } catch (switchError: any) {
+    // This error code indicates that the chain has not been added to MetaMask
+    if (switchError.code === 4902) {
+      try {
+        // Add the network
+        await window.ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [BSC_TESTNET],
+        })
+        return true
+      } catch (addError) {
+        console.error('Failed to add network:', addError)
+        throw new Error('Failed to add BSC Testnet to MetaMask')
+      }
+    } else if (switchError.code === 4001) {
+      // User rejected the request
+      throw new Error('Network switch rejected by user')
+    } else {
+      console.error('Failed to switch network:', switchError)
+      throw new Error('Failed to switch to BSC Testnet')
     }
   }
 }

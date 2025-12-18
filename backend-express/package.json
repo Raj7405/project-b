@@ -9,7 +9,8 @@
     "start": "node dist/server.js",
     "db:migrate": "npx prisma migrate dev",
     "db:generate": "npx prisma generate",
-    "db:studio": "npx prisma studio"
+    "db:studio": "npx prisma studio",
+    "test:thirdweb": "ts-node src/scripts/test-thirdweb.ts"
   },
   "keywords": [
     "crypto",
@@ -29,7 +30,8 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.0",
-    "redis": "^5.10.0"
+    "redis": "^5.10.0",
+    "thirdweb": "^5.116.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

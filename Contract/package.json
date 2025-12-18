@@ -40,6 +40,7 @@
     "hardhat": "^2.19.0"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^4.9.3"
+    "@openzeppelin/contracts": "^4.9.3",
+    "thirdweb": "^5.116.1"
   }
 }

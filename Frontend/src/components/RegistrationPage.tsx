@@ -56,10 +56,31 @@ export default function RegistrationPage() {
       const contractAddress = await contract.getAddress()
       const entryPrice = await contract.entryPrice()
       
-      // Step 3: Check current token allowance
-      const currentAllowance = await tokenContract.allowance(account, contractAddress)
+      // Step 3: Verify token contract is set up correctly
+      if (!tokenContract) {
+        throw new Error('Token contract not initialized. Please reconnect your wallet.')
+      }
       
-      // Step 4: If allowance is insufficient, approve tokens
+      const tokenAddress = await tokenContract.getAddress()
+      console.log('🔍 Token Contract Address:', tokenAddress)
+      console.log('🔍 MLM Contract Address:', contractAddress)
+      console.log('💰 Entry Price:', entryPrice.toString())
+      
+      // Step 4: Check current token allowance
+      let currentAllowance
+      try {
+        currentAllowance = await tokenContract.allowance(account, contractAddress)
+        console.log('✅ Current Allowance:', currentAllowance.toString())
+      } catch (error: any) {
+        console.error('❌ Error checking allowance:', error)
+        // If token contract doesn't exist or has no allowance function, this will fail
+        if (error.message?.includes('execution reverted') || error.code === 'CALL_EXCEPTION') {
+          throw new Error(`Token contract error: ${error.message}. Please verify TOKEN_ADDRESS is correct.`)
+        }
+        throw error
+      }
+      
+      // Step 5: If allowance is insufficient, approve tokens
       if (currentAllowance < entryPrice) {
         toast.loading('Approving tokens... Please confirm in MetaMask')
         
@@ -73,7 +94,7 @@ export default function RegistrationPage() {
         toast.success('✅ Token allowance already sufficient')
       }
       
-      // Step 5: Call backend API to register (backend will call contract.register())
+      // Step 6: Call backend API to register (backend will call contract.register())
       toast.loading('Registering on blockchain... This may take a few moments.')
       const result = await authApi.registerUser(account, uplineIdValue)
 

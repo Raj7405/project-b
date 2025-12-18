@@ -1,5 +1,5 @@
 // API Configuration
-const API_BASE_URL = `${process.env.NEXT_PUBLIC_API_URL}/api` || 'http://localhost:5000/api';
+const API_BASE_URL = `${process.env.NEXT_PUBLIC_API_URL}/api` || 'http://localhost:8080/api';
 
 // Auth/User API - ACTIVE ROUTES (mounted in server.ts)
 export const authApi = {
@@ -274,7 +274,7 @@ export const statsApi = {
 export const healthApi = {
   // GET /health (root level, not /api/health)
   checkHealth: async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:5000';
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:8080';
     const response = await fetch(`${baseUrl}/health`);
     if (!response.ok) throw new Error('Health check failed');
     return response.json();

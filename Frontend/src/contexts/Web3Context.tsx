@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import { ethers } from 'ethers'
 import toast from 'react-hot-toast'
 import { CONTRACT_ABI, TOKEN_ABI } from '@/utils/abis'
+import { switchToHardhatNetwork, checkHardhatNodeRunning } from '@/utils/networkHelpers'
 
 interface Web3ContextType {
   account: string | null
@@ -50,10 +51,71 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         return
       }
 
+      // Check if we're in local development mode
+      const isLocalDev = process.env.NEXT_PUBLIC_RPC_URL?.includes('127.0.0.1') || 
+                         process.env.NEXT_PUBLIC_RPC_URL?.includes('localhost')
+      
+      // Get expected chain ID from environment or default to BSC Testnet (97)
+      const expectedChainId = parseInt(process.env.NEXT_PUBLIC_CHAIN_ID || '97')
+      
+      // If local dev, ensure Hardhat node is running and switch to it
+      if (isLocalDev) {
+        const isHardhatRunning = await checkHardhatNodeRunning()
+        if (!isHardhatRunning) {
+          toast.error('Hardhat node is not running! Please start it with: npx hardhat node')
+          return
+        }
+
+        try {
+          toast.loading('Switching to Hardhat Local network...')
+          await switchToHardhatNetwork()
+          toast.dismiss()
+        } catch (switchError: any) {
+          toast.dismiss()
+          if (switchError.message.includes('rejected')) {
+            toast.error('Please approve the network switch to continue')
+            return
+          }
+          toast.error(`Failed to switch network: ${switchError.message}`)
+          return
+        }
+      } else if (expectedChainId === 97) {
+        // BSC Testnet - try to switch if not already on it
+        try {
+          const provider = new ethers.BrowserProvider(window.ethereum)
+          const network = await provider.getNetwork()
+          
+          if (Number(network.chainId) !== 97) {
+            toast.loading('Switching to BSC Testnet...')
+            const { switchToBSCTestnet } = await import('@/utils/networkHelpers')
+            await switchToBSCTestnet()
+            toast.dismiss()
+          }
+        } catch (switchError: any) {
+          toast.dismiss()
+          if (switchError.message.includes('rejected')) {
+            toast.error('Please approve the network switch to continue')
+            return
+          }
+          // Don't block if switch fails - user might already be on correct network
+          console.warn('Network switch warning:', switchError.message)
+        }
+      }
+
       const provider = new ethers.BrowserProvider(window.ethereum)
       const accounts = await provider.send('eth_requestAccounts', [])
       const signer = await provider.getSigner()
       const network = await provider.getNetwork()
+
+      // Verify we're on the correct network
+      if (isLocalDev && Number(network.chainId) !== 1337) {
+        toast.error(`Wrong network! Please switch to Hardhat Local (Chain ID: 1337). Current: ${network.chainId}`)
+        return
+      } else if (!isLocalDev && Number(network.chainId) !== expectedChainId) {
+        const networkName = expectedChainId === 97 ? 'BSC Testnet' : `Chain ID ${expectedChainId}`
+        toast.error(`Wrong network! Please switch to ${networkName} (Chain ID: ${expectedChainId}). Current: ${network.chainId}`)
+        return
+      }
 
       const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS!
       const tokenAddress = process.env.NEXT_PUBLIC_TOKEN_ADDRESS!
@@ -127,6 +189,23 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         const savedAddress = localStorage.getItem('walletAddress')
 
         if (wasConnected && savedAddress) {
+          // Check if we're in local development mode
+          const isLocalDev = process.env.NEXT_PUBLIC_RPC_URL?.includes('127.0.0.1') || 
+                             process.env.NEXT_PUBLIC_RPC_URL?.includes('localhost')
+          
+          // If local dev, ensure we're on Hardhat network
+          if (isLocalDev) {
+            const isHardhatRunning = await checkHardhatNodeRunning()
+            if (isHardhatRunning) {
+              try {
+                await switchToHardhatNetwork()
+              } catch (error) {
+                // Silently fail - user might not have approved yet
+                console.warn('Could not switch to Hardhat network:', error)
+              }
+            }
+          }
+
           // Check if MetaMask is still connected to this address
           const provider = new ethers.BrowserProvider(window.ethereum)
           const accounts = await provider.send('eth_accounts', [])
@@ -138,6 +217,20 @@ export function Web3Provider({ children }: { children: ReactNode }) {
             if (currentAddress === savedAddress.toLowerCase()) {
               const signer = await provider.getSigner()
               const network = await provider.getNetwork()
+
+              // Verify we're on the correct network
+              const expectedChainId = parseInt(process.env.NEXT_PUBLIC_CHAIN_ID || '97')
+              const isLocalDev = process.env.NEXT_PUBLIC_RPC_URL?.includes('127.0.0.1') || 
+                                 process.env.NEXT_PUBLIC_RPC_URL?.includes('localhost')
+              
+              const expectedChain = isLocalDev ? 1337 : expectedChainId
+              if (Number(network.chainId) !== expectedChain) {
+                console.warn(`Wrong network detected. Expected ${expectedChain}, got:`, network.chainId)
+                // Don't restore connection if on wrong network
+                localStorage.removeItem('walletAddress')
+                localStorage.removeItem('walletConnected')
+                return
+              }
 
               const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS!
               const tokenAddress = process.env.NEXT_PUBLIC_TOKEN_ADDRESS!

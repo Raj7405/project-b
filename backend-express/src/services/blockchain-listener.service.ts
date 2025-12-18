@@ -1,8 +1,15 @@
 import { ethers } from 'ethers';
+import { eth_blockNumber, getRpcClient } from 'thirdweb/rpc';
 import prisma, { ensureDatabaseConnection } from '../config/database';
-import { getProvider, getContract, CONTRACT_ABI } from '../config/blockchain';
+import { getThirdwebClient, getChain } from '../config/blockchain-thirdweb';
 import { PaymentStatus, TransactionType } from '@prisma/client';
 import { processRegistrationPayout, processRetopupPayout } from './payout-distribution.service';
+import {
+  getRegistrationAcceptedEvents,
+  getRetopupAcceptedEvents,
+  getPayoutExecutedEvents,
+  getBatchPayoutCompletedEvents,
+} from './blockchain-thirdweb.service';
 
 let isListening = false;
 let lastProcessedBlock = BigInt(0);
@@ -10,10 +17,10 @@ let consecutiveErrors = 0;
 let backoffDelay = 1000;
 let isProcessing = false;
 
-const FAST_POLLING_INTERVAL = parseInt(process.env.FAST_POLLING_INTERVAL || '50000');
+const FAST_POLLING_INTERVAL = parseInt(process.env.FAST_POLLING_INTERVAL || '50');
 const MAX_BLOCKS_PER_QUERY = BigInt(process.env.MAX_BLOCKS_PER_QUERY || '10');
-const DELAY_BETWEEN_EVENT_TYPES = parseInt(process.env.DELAY_BETWEEN_EVENT_TYPES || '2000');
-const MAX_CATCHUP_BLOCKS = BigInt(process.env.MAX_CATCHUP_BLOCKS || '5000');
+const DELAY_BETWEEN_EVENT_TYPES = parseInt(process.env.DELAY_BETWEEN_EVENT_TYPES || '20');
+const MAX_CATCHUP_BLOCKS = BigInt(process.env.MAX_CATCHUP_BLOCKS || '50');
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY = 3000;
 
@@ -32,7 +39,6 @@ const isRateLimitError = (error: any): boolean => {
 };
 
 type EventProcessor = (
-  contract: ethers.Contract,
   fromBlock: bigint,
   toBlock: bigint,
   fromWs?: boolean,
@@ -40,7 +46,6 @@ type EventProcessor = (
 ) => Promise<void>;
 
 const processEventTypeWithRetry = async (
-  contract: ethers.Contract,
   eventProcessor: EventProcessor,
   fromBlock: bigint,
   toBlock: bigint,
@@ -51,7 +56,7 @@ const processEventTypeWithRetry = async (
 
   while (retries < MAX_RETRIES) {
     try {
-      await eventProcessor(contract, fromBlock, toBlock);
+      await eventProcessor(fromBlock, toBlock);
       return true;
     } catch (error: any) {
       if (isRateLimitError(error)) {
@@ -84,9 +89,11 @@ export const startBlockchainListener = async () => {
     await prisma.$connect();
     console.log('✅ Database connected');
 
-    const provider = getProvider();
-    const currentBlock = await provider.getBlockNumber();
-    const currentBlockBigInt = BigInt(currentBlock);
+    const client = getThirdwebClient();
+    const chain = getChain();
+    const rpcRequest = getRpcClient({ client, chain });
+    const currentBlock = await eth_blockNumber(rpcRequest);
+    const currentBlockBigInt = currentBlock;
 
     const sync = await prisma.blockchainSync.findFirst();
     if (sync) {
@@ -147,14 +154,15 @@ const processEvents = async () => {
   }
 
   isProcessing = true;
-  const provider = getProvider();
-  const contract = getContract();
+  const client = getThirdwebClient();
+  const chain = getChain();
 
   try {
     await ensureDatabaseConnection();
     
-    const currentBlock = await provider.getBlockNumber();
-    const currentBlockBigInt = BigInt(currentBlock);
+    const rpcRequest = getRpcClient({ client, chain });
+    const currentBlock = await eth_blockNumber(rpcRequest);
+    const currentBlockBigInt = currentBlock;
 
     if (currentBlockBigInt <= lastProcessedBlock) {
       isProcessing = false;
@@ -183,7 +191,6 @@ const processEvents = async () => {
       const eventType = eventTypes[i];
       
       const success = await processEventTypeWithRetry(
-        contract,
         eventType.processor,
         fromBlock,
         actualToBlock,
@@ -242,23 +249,21 @@ const processEvents = async () => {
 };
 
 export const processRegistrationAcceptedEvents = async (
-  contract: ethers.Contract,
   fromBlock: bigint,
   toBlock: bigint,
   fromWs: boolean = false,
-  wsEvent?: { user: string; backendCaller: string; amount: bigint; event: ethers.Log }
+  wsEvent?: { user: string; backendCaller: string; amount: bigint; event: any }
 ) => {
-  let events: ethers.Log[] = [];
+  let events: any[] = [];
 
   if (fromWs && wsEvent) {
     console.log(`📥 [WS] Processing RegistrationAccepted event from WebSocket at block ${wsEvent.event.blockNumber}`);
-    events = [wsEvent.event as ethers.Log];
+    events = [wsEvent.event];
   } else {
-    const filter = contract.filters.RegistrationAccepted();
-    events = await contract.queryFilter(filter, fromBlock, toBlock);
+    events = await getRegistrationAcceptedEvents(fromBlock, toBlock);
 
     if (events.length > 0) {
-      console.log(`📥 [HTTP] Found ${events.length} RegistrationAccepted event(s) in blocks ${fromBlock} to ${toBlock}`);
+      console.log(`📥 [ThirdWeb] Found ${events.length} RegistrationAccepted event(s) in blocks ${fromBlock} to ${toBlock}`);
     }
   }
 
@@ -273,8 +278,11 @@ export const processRegistrationAcceptedEvents = async (
         backendCaller = wsEvent.backendCaller;
         amount = wsEvent.amount;
       } else {
-        if (!('args' in event)) continue;
-        [user, backendCaller, amount] = event.args as any;
+        // ThirdWeb event structure
+        const args = event.args as any;
+        user = args.user;
+        backendCaller = args.backendCaller;
+        amount = args.amount;
       }
 
       const walletAddress = user.toLowerCase(); 
@@ -327,23 +335,21 @@ export const processRegistrationAcceptedEvents = async (
 };
 
 export const processRetopupAcceptedEvents = async (
-  contract: ethers.Contract,
   fromBlock: bigint,
   toBlock: bigint,
   fromWs: boolean = false,
-  wsEvent?: { user: string; backendCaller: string; amount: bigint; totalRetopups: bigint; event: ethers.Log }
+  wsEvent?: { user: string; backendCaller: string; amount: bigint; totalRetopups: bigint; event: any }
 ) => {
-  let events: ethers.Log[] = [];
+  let events: any[] = [];
 
   if (fromWs && wsEvent) {
     console.log(`📥 [WS] Processing RetopupAccepted event from WebSocket at block ${wsEvent.event.blockNumber}`);
-    events = [wsEvent.event as ethers.Log];
+    events = [wsEvent.event];
   } else {
-    const filter = contract.filters.RetopupAccepted();
-    events = await contract.queryFilter(filter, fromBlock, toBlock);
+    events = await getRetopupAcceptedEvents(fromBlock, toBlock);
 
     if (events.length > 0) {
-      console.log(`📥 [HTTP] Found ${events.length} RetopupAccepted event(s) in blocks ${fromBlock} to ${toBlock}`);
+      console.log(`📥 [ThirdWeb] Found ${events.length} RetopupAccepted event(s) in blocks ${fromBlock} to ${toBlock}`);
     }
   }
 
@@ -360,8 +366,12 @@ export const processRetopupAcceptedEvents = async (
         amount = wsEvent.amount;
         totalRetopups = wsEvent.totalRetopups;
       } else {
-        if (!('args' in event)) continue;
-        [user, backendCaller, amount, totalRetopups] = event.args as any;
+        // ThirdWeb event structure
+        const args = event.args as any;
+        user = args.user;
+        backendCaller = args.backendCaller;
+        amount = args.amount;
+        totalRetopups = args.totalRetopups;
       }
 
       const walletAddress = user.toLowerCase();
@@ -382,9 +392,12 @@ export const processRetopupAcceptedEvents = async (
           }
         });
 
+        const txHash = fromWs && wsEvent ? wsEvent.event.transactionHash : event.transactionHash;
+        const blockNumber = fromWs && wsEvent ? BigInt(wsEvent.event.blockNumber) : BigInt(event.blockNumber || 0);
+
         const existingRetopupTx = await prisma.transaction.findFirst({
           where: {
-            txHash: event.transactionHash,
+            txHash: txHash,
             userId: dbUser.id,
             type: TransactionType.RETOPUP
           }
@@ -393,12 +406,12 @@ export const processRetopupAcceptedEvents = async (
         if (!existingRetopupTx) {
           await prisma.transaction.create({
             data: {
-              txHash: event.transactionHash,
+              txHash: txHash,
               userId: dbUser.id,
               walletAddress,
               type: TransactionType.RETOPUP,
               amount: amountInTokens,
-              blockNumber: BigInt(event.blockNumber),
+              blockNumber: blockNumber,
               description: `Retopup #${totalRetopups} accepted by backend: ${backendCaller}`
             }
           });
@@ -424,23 +437,21 @@ export const processRetopupAcceptedEvents = async (
 };
 
 export const processPayoutExecutedEvents = async (
-  contract: ethers.Contract,
   fromBlock: bigint,
   toBlock: bigint,
   fromWs: boolean = false,
-  wsEvent?: { user: string; amount: bigint; rewardType: string; event: ethers.Log }
+  wsEvent?: { user: string; amount: bigint; rewardType: string; event: any }
 ) => {
-  let events: ethers.Log[] = [];
+  let events: any[] = [];
 
   if (fromWs && wsEvent) {
     console.log(`📥 [WS] Processing PayoutExecuted event from WebSocket at block ${wsEvent.event.blockNumber}`);
-    events = [wsEvent.event as ethers.Log];
+    events = [wsEvent.event];
   } else {
-    const filter = contract.filters.PayoutExecuted();
-    events = await contract.queryFilter(filter, fromBlock, toBlock);
+    events = await getPayoutExecutedEvents(fromBlock, toBlock);
 
     if (events.length > 0) {
-      console.log(`📥 [HTTP] Found ${events.length} PayoutExecuted event(s) in blocks ${fromBlock} to ${toBlock}`);
+      console.log(`📥 [ThirdWeb] Found ${events.length} PayoutExecuted event(s) in blocks ${fromBlock} to ${toBlock}`);
     }
   }
 
@@ -455,8 +466,11 @@ export const processPayoutExecutedEvents = async (
         amount = wsEvent.amount;
         rewardType = wsEvent.rewardType;
       } else {
-        if (!('args' in event)) continue;
-        [user, amount, rewardType] = event.args as any;
+        // ThirdWeb event structure
+        const args = event.args as any;
+        user = args.user;
+        amount = args.amount;
+        rewardType = args.rewardType;
       }
 
       const walletAddress = user.toLowerCase();
@@ -481,9 +495,12 @@ export const processPayoutExecutedEvents = async (
           transactionType = TransactionType.DIRECT_INCOME;
         }
 
+        const txHash = fromWs && wsEvent ? wsEvent.event.transactionHash : event.transactionHash;
+        const blockNumber = fromWs && wsEvent ? BigInt(wsEvent.event.blockNumber) : BigInt(event.blockNumber || 0);
+
         const existingTransaction = await prisma.transaction.findFirst({
           where: {
-            txHash: event.transactionHash,
+            txHash: txHash,
             userId: dbUser.id,
             type: transactionType
           }
@@ -519,12 +536,12 @@ export const processPayoutExecutedEvents = async (
 
         await prisma.transaction.create({
           data: {
-            txHash: event.transactionHash,
+            txHash: txHash,
             userId: dbUser.id,
             walletAddress,
             type: transactionType,
             amount: amountInTokens,
-            blockNumber: BigInt(event.blockNumber),
+            blockNumber: blockNumber,
             description: `Payout executed: ${rewardType}`
           }
         });
@@ -541,23 +558,21 @@ export const processPayoutExecutedEvents = async (
 };
 
 export const processBatchPayoutCompletedEvents = async (
-  contract: ethers.Contract,
   fromBlock: bigint,
   toBlock: bigint,
   fromWs: boolean = false,
-  wsEvent?: { totalAmount: bigint; userCount: bigint; event: ethers.Log }
+  wsEvent?: { totalAmount: bigint; userCount: bigint; event: any }
 ) => {
-  let events: ethers.Log[] = [];
+  let events: any[] = [];
 
   if (fromWs && wsEvent) {
     console.log(`📥 [WS] Processing BatchPayoutCompleted event from WebSocket at block ${wsEvent.event.blockNumber}`);
-    events = [wsEvent.event as ethers.Log];
+    events = [wsEvent.event];
   } else {
-    const filter = contract.filters.BatchPayoutCompleted();
-    events = await contract.queryFilter(filter, fromBlock, toBlock);
+    events = await getBatchPayoutCompletedEvents(fromBlock, toBlock);
 
     if (events.length > 0) {
-      console.log(`📥 [HTTP] Found ${events.length} BatchPayoutCompleted event(s) in blocks ${fromBlock} to ${toBlock}`);
+      console.log(`📥 [ThirdWeb] Found ${events.length} BatchPayoutCompleted event(s) in blocks ${fromBlock} to ${toBlock}`);
     }
   }
 
@@ -570,8 +585,10 @@ export const processBatchPayoutCompletedEvents = async (
         totalAmount = wsEvent.totalAmount;
         userCount = wsEvent.userCount;
       } else {
-        if (!('args' in event)) continue;
-        [totalAmount, userCount] = event.args as any;
+        // ThirdWeb event structure
+        const args = event.args as any;
+        totalAmount = args.totalAmount;
+        userCount = args.userCount;
       }
 
       const totalAmountInTokens = parseFloat(ethers.formatUnits(totalAmount, 18));

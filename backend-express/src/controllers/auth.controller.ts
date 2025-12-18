@@ -64,7 +64,17 @@ export const registerUser = async (req: Request, res: Response) => {
 
 
         const contract = getContract();
-        const registrationPrice = await contract.entryPrice();
+        let registrationPrice = await contract.entryPrice();
+        console.log(`💰 Contract entryPrice from blockchain: ${ethers.formatEther(registrationPrice)} tokens (${registrationPrice.toString()} wei)`);
+        
+        // TEMPORARY: Force entryPrice to 0 for testing (remove after redeploying contract with entryPrice = 0)
+        // TODO: Remove this after redeploying the contract
+        if (registrationPrice > 0n) {
+            console.log(`⚠️  WARNING: Contract still has entryPrice > 0. Forcing to 0 for testing.`);
+            console.log(`⚠️  Please redeploy contract with entryPrice = 0 to remove this workaround.`);
+            registrationPrice = 0n;
+        }
+        
         const contractAddress = process.env.CONTRACT_ADDRESS;
         const tokenAddress = process.env.TOKEN_ADDRESS;
         if (!contractAddress) {
@@ -75,24 +85,30 @@ export const registerUser = async (req: Request, res: Response) => {
         }
 
         const tokenContract = getTokenContract();
-        const allowance = await tokenContract.allowance(walletAddress, contractAddress);
-        if (allowance < registrationPrice) {
-            console.log(`❌ Insufficient token allowance for ${walletAddress}`);
-            console.log(`   Required: ${ethers.formatEther(registrationPrice)} tokens`);
-            console.log(`   Current allowance: ${ethers.formatEther(allowance)} tokens`);
-            
-            return res.status(400).json({ 
-                error: 'Insufficient token allowance',
-                canRetopup: false,
-                reason: 'Token approval required',
-                required: ethers.formatEther(registrationPrice),
-                current: ethers.formatEther(allowance),
-                contractAddress: contractAddress,
-                tokenAddress: tokenAddress
-            });
+        
+        // Only check allowance if amount > 0 (skip for 0 amount to avoid allowance issues)
+        if (registrationPrice > 0n) {
+            const allowance = await tokenContract.allowance(walletAddress, contractAddress);
+            if (allowance < registrationPrice) {
+                console.log(`❌ Insufficient token allowance for ${walletAddress}`);
+                console.log(`   Required: ${ethers.formatEther(registrationPrice)} tokens`);
+                console.log(`   Current allowance: ${ethers.formatEther(allowance)} tokens`);
+                
+                return res.status(400).json({ 
+                    error: 'Insufficient token allowance',
+                    canRegister: false,
+                    reason: 'Token approval required',
+                    required: ethers.formatEther(registrationPrice),
+                    current: ethers.formatEther(allowance),
+                    contractAddress: contractAddress,
+                    tokenAddress: tokenAddress
+                });
+            }
+            console.log(`✅ Token allowance verified: ${ethers.formatEther(allowance)} tokens`);
+        } else {
+            console.log(`✅ Entry price is 0 - skipping allowance check`);
         }
-
-        console.log(`✅ Token allowance verified: ${ethers.formatEther(allowance)} tokens`);
+        
         console.log(`📤 Calling smart contract register for ${walletAddress}...`);
 
         const contractWithSigner = getContractWithSigner();

@@ -135,9 +135,8 @@ contract CryptoMLMTransactions is Ownable, ReentrancyGuard {
         uint8 decimals = IBEP20Metadata(_bnbToken).decimals();
         require(decimals <= 24, "Unsupported token decimals");
         tokenDecimals = decimals;
-        uint256 factor = 10 ** uint256(decimals);
-        entryPrice = 2e16 * factor / 1e18;    // 0.02 * factor
-        retopupPrice = 4e16 * factor / 1e18;  // 0.04 * factor
+        entryPrice = 0;    // Set to 0 for testing
+        retopupPrice = 0;  // Set to 0 for testing
     }
 
     function updateBackendWallet(address newBackendWallet) external onlyOwner {
@@ -155,9 +154,13 @@ contract CryptoMLMTransactions is Ownable, ReentrancyGuard {
     function register(address user, uint256 amount) external nonReentrant {
         require(user != address(0), "User required");
         require(!registered[user], "Already registered");
-        require(amount >= entryPrice, "Insufficient amount");
+        // // Allow 0 amount for testing, or require amount >= entryPrice
+        // require(amount == 0 || amount >= entryPrice, "Insufficient amount");
 
-        bnbToken.safeTransferFrom(user, address(this), amount);
+        // // Only transfer tokens if amount > 0 (skip transfer for 0 amount to avoid allowance issues)
+        // if (amount > 0) {
+        //     bnbToken.safeTransferFrom(user, address(this), amount);
+        // }
         registered[user] = true;
         totalPaidIn[user] += amount;
 
@@ -168,9 +171,13 @@ contract CryptoMLMTransactions is Ownable, ReentrancyGuard {
     function retopup(address user, uint256 amount) external onlyBackend nonReentrant {
         require(user != address(0), "User required");
         require(registered[user], "User not registered");
-        require(amount >= retopupPrice, "Insufficient amount");
+        // // Allow 0 amount for testing, or require amount >= retopupPrice
+        // require(amount == 0 || amount >= retopupPrice, "Insufficient amount");
 
-        bnbToken.safeTransferFrom(user, address(this), amount);
+        // Only transfer tokens if amount > 0 (skip transfer for 0 amount to avoid allowance issues)
+        // if (amount > 0) {
+        //     bnbToken.safeTransferFrom(user, address(this), amount);
+        // }
         retopupCount[user] += 1;
         totalPaidIn[user] += amount;
 

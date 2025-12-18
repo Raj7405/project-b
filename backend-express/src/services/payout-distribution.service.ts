@@ -1,8 +1,12 @@
 import { ethers } from 'ethers';
 import prisma from '../config/database';
-import { getContract, getProvider } from '../config/blockchain';
-import {getRedisClient} from '../redis/connection'
+import { getRedisClient } from '../redis/connection';
 import { User } from '@prisma/client';
+import { 
+  executeBatchPayouts, 
+  getCompanyWallet, 
+  getContractBalance 
+} from './blockchain-thirdweb.service';
 
 const DIRECT_INCOME_BNB = 18;
 const COMPANY_FEE_BNB = 2;
@@ -18,33 +22,6 @@ const LAYER_1_PERCENT = 50;
 const LAYER_2_PERCENT = 25;  
 const LAYER_3_PERCENT = 15;  
 const COMPANY_FEE_PERCENT = 10;
-
-const getSigner = (): ethers.Wallet => {
-  const privateKey = process.env.BACKEND_PRIVATE_KEY;
-  if (!privateKey) {
-    throw new Error('BACKEND_PRIVATE_KEY not set in environment');
-  }
-  const provider = getProvider();
-  return new ethers.Wallet(privateKey, provider);
-};
-
-const getContractWithSigner = (): ethers.Contract => {
-  const signer = getSigner();
-  const contractAddress = process.env.CONTRACT_ADDRESS;
-  if (!contractAddress) {
-    throw new Error('CONTRACT_ADDRESS not set in environment');
-  }
-  
-  const CONTRACT_ABI = [
-    "function payout(address user, uint256 amount, string calldata rewardType) external",
-    "function executeBatchPayouts(address[] calldata users, uint256[] calldata amounts, string[] calldata rewardTypes) external",
-    "function companyWallet() view returns (address)",
-    "function entryPrice() view returns (uint256)",
-    "function getContractBalance() view returns (uint256)",
-  ];
-  
-  return new ethers.Contract(contractAddress, CONTRACT_ABI, signer);
-};
 
 const bnbToWei = (bnbAmount: number): bigint => {
   return ethers.parseUnits(bnbAmount.toString(), TOKEN_DECIMALS);
@@ -89,13 +66,12 @@ export const processRegistrationPayout = async (
       return;
     }
 
-    const contract = getContractWithSigner();
-    const companyWallet = await contract.companyWallet();
+    const companyWallet = await getCompanyWallet();
     
     const directIncomeWei = bnbToWei(DIRECT_INCOME_BNB);
     const companyFeeWei = bnbToWei(COMPANY_FEE_BNB);
 
-    const contractBalance = await contract.getContractBalance();
+    const contractBalance = await getContractBalance();
     if (contractBalance < (directIncomeWei + companyFeeWei)) {
       throw new Error(`Insufficient contract balance. Required: ${ethers.formatEther(directIncomeWei + companyFeeWei)} BNB, Available: ${ethers.formatEther(contractBalance)} BNB`);
     }
@@ -108,11 +84,12 @@ export const processRegistrationPayout = async (
     console.log(`   - Parent (${parentWalletAddress}): ${DIRECT_INCOME_BNB} BNB (Direct Income)`);
     console.log(`   - Company (${companyWallet}): ${COMPANY_FEE_BNB} BNB (Company Fee)`);
 
-    const tx = await contract.executeBatchPayouts(users, amounts, rewardTypes);
-    console.log(`📤 Batch payout transaction sent: ${tx.hash}`);
+    const result = await executeBatchPayouts(users, amounts, rewardTypes);
+    console.log(`📤 Batch payout transaction sent: ${result.transactionHash}`);
     
-    const receipt = await tx.wait();
-    console.log(`✅ Batch payout confirmed in block ${receipt.blockNumber}`);
+    const receipt = result.receipt;
+    const blockNumber = receipt?.blockNumber || receipt?.block || 'unknown';
+    console.log(`✅ Batch payout confirmed in block ${blockNumber}`);
 
     await prisma.user.update({
       where: { id: parentUser.id },
@@ -123,17 +100,17 @@ export const processRegistrationPayout = async (
       }
     });
 
-    await prisma.transaction.create({
-      data: {
-        txHash: receipt.hash,
-        userId: parentUser.id,
-        walletAddress: parentWalletAddress,
-        type: 'DIRECT_INCOME',
-        amount: DIRECT_INCOME_BNB,
-        blockNumber: BigInt(receipt.blockNumber || 0),
-        description: `Direct income from referral #${newSponsorCount}`
-      }
-    });
+        await prisma.transaction.create({
+          data: {
+            txHash: result.transactionHash,
+            userId: parentUser.id,
+            walletAddress: parentWalletAddress,
+            type: 'DIRECT_INCOME',
+            amount: DIRECT_INCOME_BNB,
+            blockNumber: BigInt(blockNumber || 0),
+            description: `Direct income from referral #${newSponsorCount}`
+          }
+        });
 
     console.log(`✅ Payout distribution completed for registration`);
 
@@ -209,7 +186,6 @@ export const processRetopupPayout = async (
       currentParent = currentParent.parent;
     }
 
-    const contract = getContractWithSigner();
     const users: string[] = [];
     const amounts: bigint[] = [];
     const rewardTypes: string[] = [];
@@ -250,17 +226,18 @@ export const processRetopupPayout = async (
       return;
     }
 
-    const contractBalance = await contract.getContractBalance();
+    const contractBalance = await getContractBalance();
     const totalPayout = amounts.reduce((sum, amt) => sum + amt, BigInt(0));
     if (contractBalance < totalPayout) {
       throw new Error(`Insufficient contract balance for retopup payout`);
     }
 
-    const tx = await contract.executeBatchPayouts(users, amounts, rewardTypes);
-    console.log(`📤 Retopup batch payout transaction sent: ${tx.hash}`);
+    const result = await executeBatchPayouts(users, amounts, rewardTypes);
+    console.log(`📤 Retopup batch payout transaction sent: ${result.transactionHash}`);
     
-    const receipt = await tx.wait();
-    console.log(`✅ Retopup batch payout confirmed in block ${receipt.blockNumber}`);
+    const receipt = result.receipt;
+    const blockNumber = receipt?.blockNumber || receipt?.block || 'unknown';
+    console.log(`✅ Retopup batch payout confirmed in block ${blockNumber}`);
 
     for (let i = 0; i < uplineChain.length && i < 10; i++) {
       const upline = uplineChain[i];
@@ -283,12 +260,12 @@ export const processRetopupPayout = async (
 
         await prisma.transaction.create({
           data: {
-            txHash: receipt.hash,
+            txHash: result.transactionHash,
             userId: upline.userId,
             walletAddress: upline.address,
             type: 'LEVEL_INCOME',
             amount: levelIncomeBNB,
-            blockNumber: BigInt(receipt.blockNumber || 0),
+            blockNumber: BigInt(blockNumber || 0),
             description: `Level ${i + 1} income from retopup`
           }
         });
@@ -647,8 +624,7 @@ const distributePoolIncomeLayered = async (
   poolValue: number,
   currentTree: any
 ): Promise<void> => {
-  const contract = getContractWithSigner();
-  const companyWallet = await contract.companyWallet();
+  const companyWallet = await getCompanyWallet();
   
   const layer1Amount = (poolValue * LAYER_1_PERCENT) / 100;
   const layer2Amount = (poolValue * LAYER_2_PERCENT) / 100;
@@ -752,17 +728,18 @@ const distributePoolIncomeLayered = async (
   rewardTypes.push('COMPANY_FEE');
   
   if (users.length > 0) {
-    const contractBalance = await contract.getContractBalance();
+    const contractBalance = await getContractBalance();
     const totalPayout = amounts.reduce((sum, amt) => sum + amt, BigInt(0));
     
     if (contractBalance < totalPayout) {
       throw new Error(`Insufficient contract balance for auto pool payout. Required: ${ethers.formatEther(totalPayout)} BNB, Available: ${ethers.formatEther(contractBalance)} BNB`);
     }
     
-    const tx = await contract.executeBatchPayouts(users, amounts, rewardTypes);
-    const receipt = await tx.wait();
+    const result = await executeBatchPayouts(users, amounts, rewardTypes);
+    const receipt = result.receipt;
+    const blockNumber = receipt?.blockNumber || receipt?.block || 'unknown';
     
-    console.log(`✅ Layered income distribution completed: ${receipt.blockNumber}`);
+    console.log(`✅ Layered income distribution completed: ${blockNumber}`);
     
     for (let i = 0; i < users.length; i++) {
       if (rewardTypes[i] === 'AUTO_POOL_INCOME') {
@@ -773,12 +750,12 @@ const distributePoolIncomeLayered = async (
         if (user) {
           await prisma.transaction.create({
             data: {
-              txHash: receipt.hash,
+              txHash: result.transactionHash,
               userId: user.id,
               walletAddress: users[i],
               type: 'AUTO_POOL_INCOME',
               amount: Number(ethers.formatEther(amounts[i])),
-              blockNumber: BigInt(receipt.blockNumber || 0),
+              blockNumber: BigInt(blockNumber || 0),
               description: `Auto pool income from level ${poolLevel}`
             }
           });

@@ -7,7 +7,7 @@ import { CONTRACT_ABI } from './abis'
  */
 export function getReadOnlyContract() {
   try {
-    // Use public RPC endpoint for reading
+    // Use local RPC if configured, otherwise fallback to BSC testnet
     const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || 'https://bsc-testnet.publicnode.com'
     const provider = new ethers.JsonRpcProvider(rpcUrl)
     
