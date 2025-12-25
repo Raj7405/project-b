@@ -89,6 +89,7 @@ body {
     border-radius: calc(1rem - 2px);
     padding: 1.5rem;
     z-index: 1;
+    height: 100%;
   }
 
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { useWeb3 } from '@/contexts/Web3Context'
 import { ethers } from 'ethers'
 import toast from 'react-hot-toast'
@@ -286,7 +287,7 @@ export default function Dashboard() {
           </h2>
           <div className="grid md:grid-cols-3 gap-6">
             {/* Direct Income Card */}
-            <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-blue-600 to-blue-800 p-6 shadow-lg hover:shadow-blue-500/50 transition-all group">
+            <Link href="/direct-income" className="relative overflow-hidden rounded-xl bg-gradient-to-br from-blue-600 to-blue-800 p-6 shadow-lg hover:shadow-blue-500/50 transition-all group cursor-pointer hover:scale-105">
               <div className="absolute top-0 right-0 -mt-4 -mr-4 h-24 w-24 rounded-full bg-blue-400/20 blur-2xl"></div>
               <div className="relative">
                 <div className="flex items-center justify-between mb-3">
@@ -301,10 +302,10 @@ export default function Dashboard() {
                   <div className="h-full bg-gradient-to-r from-blue-300 to-white w-full transform origin-left group-hover:scale-x-110 transition-transform"></div>
                 </div>
               </div>
-            </div>
+            </Link>
 
             {/* Pool Income Card */}
-            <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-green-600 to-green-800 p-6 shadow-lg hover:shadow-green-500/50 transition-all group">
+            <Link href="/pool-income" className="relative overflow-hidden rounded-xl bg-gradient-to-br from-green-600 to-green-800 p-6 shadow-lg hover:shadow-green-500/50 transition-all group cursor-pointer hover:scale-105">
               <div className="absolute top-0 right-0 -mt-4 -mr-4 h-24 w-24 rounded-full bg-green-400/20 blur-2xl"></div>
               <div className="relative">
                 <div className="flex items-center justify-between mb-3">
@@ -319,10 +320,10 @@ export default function Dashboard() {
                   <div className="h-full bg-gradient-to-r from-green-300 to-white w-full transform origin-left group-hover:scale-x-110 transition-transform"></div>
                 </div>
               </div>
-            </div>
+            </Link>
 
             {/* Level Income Card */}
-            <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-purple-600 to-purple-800 p-6 shadow-lg hover:shadow-purple-500/50 transition-all group">
+            <Link href="/level-income" className="relative overflow-hidden rounded-xl bg-gradient-to-br from-purple-600 to-purple-800 p-6 shadow-lg hover:shadow-purple-500/50 transition-all group cursor-pointer hover:scale-105">
               <div className="absolute top-0 right-0 -mt-4 -mr-4 h-24 w-24 rounded-full bg-purple-400/20 blur-2xl"></div>
               <div className="relative">
                 <div className="flex items-center justify-between mb-3">
@@ -337,7 +338,7 @@ export default function Dashboard() {
                   <div className="h-full bg-gradient-to-r from-purple-300 to-white w-full transform origin-left group-hover:scale-x-110 transition-transform"></div>
                 </div>
               </div>
-            </div>
+            </Link>
           </div>
         </div>
       </div>
@@ -362,9 +363,6 @@ export default function Dashboard() {
           </div>
         </div>
       )}
-
-      {/* Binary Tree Visualization */}
-      <BinaryTree height="700px" />
 
       <BinaryTreeLive/>
 

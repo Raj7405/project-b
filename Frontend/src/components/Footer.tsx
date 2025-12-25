@@ -8,7 +8,7 @@ export default function Footer() {
   return (
     <footer className="bg-gradient-to-b from-gray-900 to-black border-t border-gray-800">
       <div className="container mx-auto px-4 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-8">
           {/* About Section */}
           <div>
             <h3 className="text-xl font-bold text-white mb-4 gradient-color-1">
@@ -26,7 +26,7 @@ export default function Footer() {
           </div>
 
           {/* Quick Links */}
-          <div>
+          {/* <div>
             <h4 className="text-lg font-semibold text-white mb-4">Quick Links</h4>
             <ul className="space-y-2">
               <li>
@@ -50,7 +50,7 @@ export default function Footer() {
                 </Link>
               </li>
             </ul>
-          </div>
+          </div> */}
 
           {/* Features */}
           <div>

@@ -136,7 +136,7 @@ export default function RootLayout({
         <Web3Provider>
           <AuthProvider>
             <div className="flex flex-col min-h-screen">
-              <Navbar />
+              {/* <Navbar /> */}
               <main className="grow">
                 {children}
               </main>
