@@ -7,6 +7,7 @@ import { startBlockchainListener } from './services/blockchain-listener.service'
 import { startBlockchainWsListener } from './services/blockchain-ws-listerner-service';
 import authRoutes from './routes/auth.routes';
 import transactionRoutes from './routes/transaction.routes';
+import adminRoutes from './routes/admin.routes';
 import { connectRedis } from './redis/connection';
 
 dotenv.config();
@@ -23,6 +24,7 @@ app.use(morgan('dev'));
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

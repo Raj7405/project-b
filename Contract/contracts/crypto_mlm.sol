@@ -136,8 +136,8 @@ contract CryptoMLMTransactions is Ownable, ReentrancyGuard {
         require(decimals <= 24, "Unsupported token decimals");
         tokenDecimals = decimals;
         uint256 factor = 10 ** uint256(decimals);
-        entryPrice = 20 * factor;
-        retopupPrice = 40 * factor;
+        entryPrice = 2e16 * factor / 1e18;    // 0.02 * factor
+        retopupPrice = 4e16 * factor / 1e18;  // 0.04 * factor
     }
 
     function updateBackendWallet(address newBackendWallet) external onlyOwner {
