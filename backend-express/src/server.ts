@@ -44,15 +44,15 @@ app.listen(PORT, async () => {
   console.log(`🔗 BSC RPC: ${process.env.BSC_RPC_URL}`);
   console.log(`📝 Contract: ${process.env.CONTRACT_ADDRESS}`);
 
-  // Connect to Redis (non-blocking, graceful failure)
-  try {
-    const redisConnected = await connectRedis();
-    if (!redisConnected) {
-      console.warn('⚠️  Server started without Redis connection');
-    }
-  } catch (error) {
-    console.error('❌ Redis connection error (continuing without Redis):', error);
-  }
+  // // Connect to Redis (non-blocking, graceful failure)
+  // try {
+  //   const redisConnected = await connectRedis();
+  //   if (!redisConnected) {
+  //     console.warn('⚠️  Server started without Redis connection');
+  //   }
+  // } catch (error) {
+  //   console.error('❌ Redis connection error (continuing without Redis):', error);
+  // }
 
   // Start blockchain event listener
   // WebSocket listener is optional - app will work with HTTP polling if WS fails
