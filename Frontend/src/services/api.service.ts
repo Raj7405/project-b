@@ -292,3 +292,268 @@ export const TransactionTypes = {
 } as const;
 
 export type TransactionType = typeof TransactionTypes[keyof typeof TransactionTypes];
+
+// Admin API - ACTIVE ROUTES
+export const adminApi = {
+  /**
+   * Admin login endpoint
+   * POST /api/admin/login
+   */
+  login: async (username: string, password: string) => {
+    const response = await fetch(`${API_BASE_URL}/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'Admin login failed');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Get all members (Member Register Panel)
+   * GET /api/admin/members?page=0&size=20&search=...
+   */
+  getMembers: async (accessToken: string, options?: {
+    page?: number;
+    size?: number;
+    search?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (options?.page !== undefined) params.append('page', String(options.page));
+    if (options?.size) params.append('size', String(options.size));
+    if (options?.search) params.append('search', options.search);
+
+    const response = await fetch(`${API_BASE_URL}/admin/members?${params.toString()}`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'Failed to fetch members');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Get user income details
+   * GET /api/admin/members/:userId/income
+   */
+  getUserIncomeDetails: async (accessToken: string, userId: string) => {
+    const response = await fetch(`${API_BASE_URL}/admin/members/${userId}/income`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'Failed to fetch user income details');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Get slot report
+   * GET /api/admin/slots/report?userId=...
+   */
+  getSlotReport: async (accessToken: string, userId: string) => {
+    const response = await fetch(`${API_BASE_URL}/admin/slots/report?userId=${userId}`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'Failed to fetch slot report');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Get level income eligible parents
+   * GET /api/admin/level-income/eligible-parents?userId=...
+   */
+  getLevelIncomeEligibleParents: async (accessToken: string, userId: string) => {
+    const response = await fetch(`${API_BASE_URL}/admin/level-income/eligible-parents?userId=${userId}`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'Failed to fetch eligible parents');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Manual transfer level income
+   * POST /api/admin/level-income/manual-transfer
+   */
+  manualTransferLevelIncome: async (accessToken: string, userId: string, parentLevels?: number[]) => {
+    const response = await fetch(`${API_BASE_URL}/admin/level-income/manual-transfer`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ userId, parentLevels })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'Failed to initiate manual transfer');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Get overall income report
+   * GET /api/admin/income/overall?page=0&size=20&userId=...&startDate=...&endDate=...
+   */
+  getOverallIncomeReport: async (accessToken: string, options?: {
+    page?: number;
+    size?: number;
+    userId?: string;
+    startDate?: string;
+    endDate?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (options?.page !== undefined) params.append('page', String(options.page));
+    if (options?.size) params.append('size', String(options.size));
+    if (options?.userId) params.append('userId', options.userId);
+    if (options?.startDate) params.append('startDate', options.startDate);
+    if (options?.endDate) params.append('endDate', options.endDate);
+
+    const response = await fetch(`${API_BASE_URL}/admin/income/overall?${params.toString()}`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'Failed to fetch overall income report');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Get direct income report
+   * GET /api/admin/income/direct?page=0&size=20&userId=...&startDate=...&endDate=...
+   */
+  getDirectIncomeReport: async (accessToken: string, options?: {
+    page?: number;
+    size?: number;
+    userId?: string;
+    startDate?: string;
+    endDate?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (options?.page !== undefined) params.append('page', String(options.page));
+    if (options?.size) params.append('size', String(options.size));
+    if (options?.userId) params.append('userId', options.userId);
+    if (options?.startDate) params.append('startDate', options.startDate);
+    if (options?.endDate) params.append('endDate', options.endDate);
+
+    const response = await fetch(`${API_BASE_URL}/admin/income/direct?${params.toString()}`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'Failed to fetch direct income report');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Get slot income report
+   * GET /api/admin/income/slot?page=0&size=20&userId=...&startDate=...&endDate=...
+   */
+  getSlotIncomeReport: async (accessToken: string, options?: {
+    page?: number;
+    size?: number;
+    userId?: string;
+    startDate?: string;
+    endDate?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (options?.page !== undefined) params.append('page', String(options.page));
+    if (options?.size) params.append('size', String(options.size));
+    if (options?.userId) params.append('userId', options.userId);
+    if (options?.startDate) params.append('startDate', options.startDate);
+    if (options?.endDate) params.append('endDate', options.endDate);
+
+    const response = await fetch(`${API_BASE_URL}/admin/income/slot?${params.toString()}`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'Failed to fetch slot income report');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Get level income report
+   * GET /api/admin/income/level?page=0&size=20&userId=...&startDate=...&endDate=...
+   */
+  getLevelIncomeReport: async (accessToken: string, options?: {
+    page?: number;
+    size?: number;
+    userId?: string;
+    startDate?: string;
+    endDate?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (options?.page !== undefined) params.append('page', String(options.page));
+    if (options?.size) params.append('size', String(options.size));
+    if (options?.userId) params.append('userId', options.userId);
+    if (options?.startDate) params.append('startDate', options.startDate);
+    if (options?.endDate) params.append('endDate', options.endDate);
+
+    const response = await fetch(`${API_BASE_URL}/admin/income/level?${params.toString()}`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'Failed to fetch level income report');
+    }
+
+    return response.json();
+  },
+};
