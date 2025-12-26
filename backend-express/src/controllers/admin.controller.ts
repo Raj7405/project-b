@@ -414,6 +414,73 @@ export const getSlotReport = async (req: AdminRequest, res: Response): Promise<v
 };
 
 /**
+ * Get all pending retopups (where manualShareTransfer is false).
+ * Returns list of users who have done retopup but income hasn't been transferred yet.
+ */
+export const getPendingRetopups = async (req: AdminRequest, res: Response): Promise<void> => {
+  try {
+    const page = Math.max(0, parseInt(req.query.page as string) || 0);
+    const size = Math.min(100, Math.max(1, parseInt(req.query.size as string) || 20));
+
+    const [pendingRetopups, total] = await Promise.all([
+      prisma.retopupPending.findMany({
+        where: {
+          manualShareTransfer: false
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              walletAddress: true,
+              parentId: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: page * size,
+        take: size
+      }),
+      prisma.retopupPending.count({
+        where: {
+          manualShareTransfer: false
+        }
+      })
+    ]);
+
+    const formattedData = pendingRetopups.map((pending: any) => ({
+      id: pending.id,
+      userId: pending.userId,
+      walletAddress: pending.walletAddress,
+      retopupAmount: pending.retopupAmount.toString(),
+      manualShareTransfer: pending.manualShareTransfer,
+      createdAt: pending.createdAt.toISOString(),
+      user: pending.user
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: formattedData,
+      pagination: {
+        page,
+        size,
+        totalElements: total,
+        totalPages: Math.ceil(total / size)
+      }
+    });
+  } catch (error) {
+    console.error('Error getting pending retopups:', error);
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to retrieve pending retopups',
+        traceId: req.headers['x-request-id'] as string || 'unknown',
+        timestamp: new Date().toISOString()
+      }
+    });
+  }
+};
+
+/**
  * Level Income Panel (Retopup Flow) - Get eligible parents for retopup income distribution.
  * Returns top 10 eligible parents (uplines) when a user performs retopup.
  * 
@@ -441,56 +508,45 @@ export const getLevelIncomeEligibleParents = async (req: AdminRequest, res: Resp
       return;
     }
 
-    const retopupUser = await prisma.user.findUnique({
-      where: { id: userId },
+    // First, verify the retopup user exists and has pending retopup
+    const pendingRetopup = await prisma.retopupPending.findUnique({
+      where: { userId },
       include: {
-        parent: {
-          include: {
-            parent: {
-              include: {
-                parent: {
-                  include: {
-                    parent: {
-                      include: {
-                        parent: {
-                          include: {
-                            parent: {
-                              include: {
-                                parent: {
-                                  include: {
-                                    parent: {
-                                      include: {
-                                        parent: true
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
+        user: {
+          select: {
+            id: true,
+            walletAddress: true,
+            parentId: true
           }
         }
       }
     });
 
-    if (!retopupUser) {
+    if (!pendingRetopup) {
       res.status(404).json({
         error: {
-          code: 'USER_NOT_FOUND',
-          message: `User with ID ${userId} not found`,
+          code: 'PENDING_RETOPUP_NOT_FOUND',
+          message: `No pending retopup found for user ID ${userId}`,
           traceId: req.headers['x-request-id'] as string || 'unknown',
           timestamp: new Date().toISOString()
         }
       });
       return;
     }
+
+    if (pendingRetopup.manualShareTransfer) {
+      res.status(400).json({
+        error: {
+          code: 'ALREADY_PROCESSED',
+          message: `Retopup for user ID ${userId} has already been processed`,
+          traceId: req.headers['x-request-id'] as string || 'unknown',
+          timestamp: new Date().toISOString()
+        }
+      });
+      return;
+    }
+
+    const retopupUser = pendingRetopup.user;
 
     // Traverse tree upwards to get top 10 parents
     const eligibleParents: Array<{
@@ -503,30 +559,41 @@ export const getLevelIncomeEligibleParents = async (req: AdminRequest, res: Resp
     }> = [];
 
     const levelPercentages = [30.00, 15.00, 10.00, 5.00, 5.00, 5.00, 5.00, 5.00, 10.00, 10.00];
-    const RETOPUP_PRICE_BNB = 40;
-    let currentParent = retopupUser.parent;
+    const RETOPUP_PRICE_BNB = parseFloat(pendingRetopup.retopupAmount.toString());
+    let currentParentId = retopupUser.parentId;
     let level = 1;
 
-    while (currentParent && eligibleParents.length < 10) {
+    // Iteratively query each parent up to 10 levels
+    while (currentParentId && eligibleParents.length < 10) {
+      const parent = await prisma.user.findUnique({
+        where: { id: currentParentId },
+        select: {
+          id: true,
+          walletAddress: true,
+          hasReTopup: true,
+          parentId: true
+        }
+      });
+
+      if (!parent) {
+        // Parent not found, stop traversal
+        break;
+      }
+
       const percentage = levelPercentages[level - 1] || 0;
       const shareAmount = (RETOPUP_PRICE_BNB * percentage / 100).toFixed(18);
 
       eligibleParents.push({
         level,
-        userId: currentParent.id,
-        walletAddress: currentParent.walletAddress,
-        hasReTopup: currentParent.hasReTopup,
+        userId: parent.id,
+        walletAddress: parent.walletAddress,
+        hasReTopup: parent.hasReTopup,
         sharePercentage: percentage,
         shareAmount
       });
 
-      // Get next parent
-      const nextParent = await prisma.user.findUnique({
-        where: { id: currentParent.id },
-        include: { parent: true }
-      });
-
-      currentParent = nextParent?.parent || null;
+      // Move to next parent
+      currentParentId = parent.parentId;
       level++;
     }
 
@@ -534,7 +601,7 @@ export const getLevelIncomeEligibleParents = async (req: AdminRequest, res: Resp
       success: true,
       retopupUserId: retopupUser.id,
       retopupAmount: RETOPUP_PRICE_BNB.toString(),
-      manualShareTransfer: process.env.MANUAL_SHARE_TRANSFER === 'true',
+      manualShareTransfer: pendingRetopup.manualShareTransfer,
       eligibleParents,
       totalLevels: eligibleParents.length
     });
@@ -552,16 +619,162 @@ export const getLevelIncomeEligibleParents = async (req: AdminRequest, res: Resp
 };
 
 /**
- * Manually trigger blockchain transfer for level income distribution.
- * This is used when manualShareTransfer is false.
+ * Execute single payment for a specific parent level.
  * 
  * Request Body:
  * - userId: User ID who performed retopup
- * - parentLevels: Array of level numbers to transfer (optional, defaults to all)
+ * - parentUserId: User ID of the parent to pay
+ * - level: Level number (1-10)
  */
-export const manualTransferLevelIncome = async (req: AdminRequest, res: Response): Promise<void> => {
+export const executeSinglePayment = async (req: AdminRequest, res: Response): Promise<void> => {
   try {
-    const { userId, parentLevels } = req.body;
+    const { userId, parentUserId, level } = req.body;
+
+    if (!userId || !parentUserId || !level) {
+      res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'userId, parentUserId, and level are required',
+          details: [
+            { field: !userId ? 'userId' : !parentUserId ? 'parentUserId' : 'level', issue: 'Field is required', value: '' }
+          ],
+          traceId: req.headers['x-request-id'] as string || 'unknown',
+          timestamp: new Date().toISOString()
+        }
+      });
+      return;
+    }
+
+    const levelNum = parseInt(level);
+    if (levelNum < 1 || levelNum > 10) {
+      res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Level must be between 1 and 10',
+          traceId: req.headers['x-request-id'] as string || 'unknown',
+          timestamp: new Date().toISOString()
+        }
+      });
+      return;
+    }
+
+    // Get pending retopup
+    const pendingRetopup = await prisma.retopupPending.findUnique({
+      where: { userId }
+    });
+
+    if (!pendingRetopup || pendingRetopup.manualShareTransfer) {
+      res.status(404).json({
+        error: {
+          code: 'PENDING_RETOPUP_NOT_FOUND',
+          message: `No pending retopup found for user ID ${userId}`,
+          traceId: req.headers['x-request-id'] as string || 'unknown',
+          timestamp: new Date().toISOString()
+        }
+      });
+      return;
+    }
+
+    // Get parent user
+    const parentUser = await prisma.user.findUnique({
+      where: { id: parentUserId }
+    });
+
+    if (!parentUser) {
+      res.status(404).json({
+        error: {
+          code: 'PARENT_NOT_FOUND',
+          message: `Parent user with ID ${parentUserId} not found`,
+          traceId: req.headers['x-request-id'] as string || 'unknown',
+          timestamp: new Date().toISOString()
+        }
+      });
+      return;
+    }
+
+    const levelPercentages = [30.00, 15.00, 10.00, 5.00, 5.00, 5.00, 5.00, 5.00, 10.00, 10.00];
+    const percentage = levelPercentages[levelNum - 1] || 0;
+    const retopupAmount = parseFloat(pendingRetopup.retopupAmount.toString());
+    const shareAmount = (retopupAmount * percentage / 100);
+
+    // Only pay if parent has retopup
+    if (!parentUser.hasReTopup) {
+      res.status(400).json({
+        error: {
+          code: 'PARENT_NOT_ELIGIBLE',
+          message: `Parent user ${parentUserId} has not done retopup and is not eligible for level income`,
+          traceId: req.headers['x-request-id'] as string || 'unknown',
+          timestamp: new Date().toISOString()
+        }
+      });
+      return;
+    }
+
+    // Execute blockchain payment
+    const { getContractWithSigner } = await import('../config/blockchain');
+    const { ethers } = await import('ethers');
+    
+    const contract = getContractWithSigner();
+    const shareAmountWei = ethers.parseUnits(shareAmount.toFixed(18), 18);
+
+    const tx = await contract.payout(parentUser.walletAddress, shareAmountWei, `LEVEL_INCOME_${levelNum}`);
+    console.log(`📤 Single payment transaction sent: ${tx.hash}`);
+    
+    const receipt = await tx.wait();
+    console.log(`✅ Single payment confirmed in block ${receipt.blockNumber}`);
+
+    // Update user's total level income
+    await prisma.user.update({
+      where: { id: parentUserId },
+      data: {
+        totalLevelIncome: { increment: shareAmount }
+      }
+    });
+
+    // Create transaction record
+    await prisma.transaction.create({
+      data: {
+        txHash: receipt.hash,
+        userId: parentUserId,
+        walletAddress: parentUser.walletAddress,
+        type: 'LEVEL_INCOME',
+        amount: shareAmount,
+        blockNumber: BigInt(receipt.blockNumber || 0),
+        description: `Level ${levelNum} income from retopup (manual transfer)`
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Payment executed successfully',
+      txHash: receipt.hash,
+      blockNumber: receipt.blockNumber.toString(),
+      parentUserId,
+      level: levelNum,
+      amount: shareAmount.toString()
+    });
+  } catch (error: any) {
+    console.error('Error executing single payment:', error);
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: error.message || 'Failed to execute payment',
+        traceId: req.headers['x-request-id'] as string || 'unknown',
+        timestamp: new Date().toISOString()
+      }
+    });
+  }
+};
+
+/**
+ * Execute batch payment for all eligible parents at once.
+ * 
+ * Request Body:
+ * - userId: User ID who performed retopup
+ */
+export const executeBatchPayment = async (req: AdminRequest, res: Response): Promise<void> => {
+  try {
+    const { userId } = req.body;
 
     if (!userId) {
       res.status(400).json({
@@ -580,17 +793,25 @@ export const manualTransferLevelIncome = async (req: AdminRequest, res: Response
       return;
     }
 
-    // Get eligible parents (reuse logic from getLevelIncomeEligibleParents)
-    const retopupUser = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { parent: true }
+    // Get pending retopup
+    const pendingRetopup = await prisma.retopupPending.findUnique({
+      where: { userId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            walletAddress: true,
+            parentId: true
+          }
+        }
+      }
     });
 
-    if (!retopupUser) {
+    if (!pendingRetopup || pendingRetopup.manualShareTransfer) {
       res.status(404).json({
         error: {
-          code: 'USER_NOT_FOUND',
-          message: `User with ID ${userId} not found`,
+          code: 'PENDING_RETOPUP_NOT_FOUND',
+          message: `No pending retopup found for user ID ${userId}`,
           traceId: req.headers['x-request-id'] as string || 'unknown',
           timestamp: new Date().toISOString()
         }
@@ -598,20 +819,155 @@ export const manualTransferLevelIncome = async (req: AdminRequest, res: Response
       return;
     }
 
-    // This would trigger the actual blockchain transfer
-    // For now, return success (implementation depends on your blockchain service)
+    // Get eligible parents (same logic as getLevelIncomeEligibleParents)
+    const eligibleParents: Array<{
+      level: number;
+      userId: string;
+      walletAddress: string;
+      hasReTopup: boolean;
+      sharePercentage: number;
+      shareAmount: number;
+    }> = [];
+
+    const levelPercentages = [30.00, 15.00, 10.00, 5.00, 5.00, 5.00, 5.00, 5.00, 10.00, 10.00];
+    const RETOPUP_PRICE_BNB = parseFloat(pendingRetopup.retopupAmount.toString());
+    let currentParentId = pendingRetopup.user.parentId;
+    let level = 1;
+
+    while (currentParentId && eligibleParents.length < 10) {
+      const parent = await prisma.user.findUnique({
+        where: { id: currentParentId },
+        select: {
+          id: true,
+          walletAddress: true,
+          hasReTopup: true,
+          parentId: true
+        }
+      });
+
+      if (!parent) break;
+
+      const percentage = levelPercentages[level - 1] || 0;
+      const shareAmount = RETOPUP_PRICE_BNB * percentage / 100;
+
+      eligibleParents.push({
+        level,
+        userId: parent.id,
+        walletAddress: parent.walletAddress,
+        hasReTopup: parent.hasReTopup,
+        sharePercentage: percentage,
+        shareAmount
+      });
+
+      currentParentId = parent.parentId;
+      level++;
+    }
+
+    // Filter only eligible parents (those who have retopup)
+    const eligibleForPayment = eligibleParents.filter(p => p.hasReTopup);
+
+    if (eligibleForPayment.length === 0) {
+      res.status(400).json({
+        error: {
+          code: 'NO_ELIGIBLE_PARENTS',
+          message: 'No eligible parents found (all parents must have done retopup)',
+          traceId: req.headers['x-request-id'] as string || 'unknown',
+          timestamp: new Date().toISOString()
+        }
+      });
+      return;
+    }
+
+    // Execute batch payment
+    const { getContractWithSigner } = await import('../config/blockchain');
+    const { ethers } = await import('ethers');
+    const { getContract } = await import('../config/blockchain');
+    
+    const contract = getContractWithSigner();
+    const users: string[] = [];
+    const amounts: bigint[] = [];
+    const rewardTypes: string[] = [];
+
+    for (const parent of eligibleForPayment) {
+      users.push(parent.walletAddress);
+      amounts.push(ethers.parseUnits(parent.shareAmount.toFixed(18), 18));
+      rewardTypes.push(`LEVEL_INCOME_${parent.level}`);
+    }
+
+    // Check contract balance
+    const readContract = getContract();
+    const contractBalance = await readContract.getContractBalance();
+    const totalPayout = amounts.reduce((sum, amt) => sum + amt, BigInt(0));
+    
+    if (contractBalance < totalPayout) {
+      res.status(400).json({
+        error: {
+          code: 'INSUFFICIENT_BALANCE',
+          message: `Insufficient contract balance. Required: ${ethers.formatEther(totalPayout)} BNB, Available: ${ethers.formatEther(contractBalance)} BNB`,
+          traceId: req.headers['x-request-id'] as string || 'unknown',
+          timestamp: new Date().toISOString()
+        }
+      });
+      return;
+    }
+
+    const tx = await contract.executeBatchPayouts(users, amounts, rewardTypes);
+    console.log(`📤 Batch payment transaction sent: ${tx.hash}`);
+    
+    const receipt = await tx.wait();
+    console.log(`✅ Batch payment confirmed in block ${receipt.blockNumber}`);
+
+    // Update user incomes and create transaction records
+    for (const parent of eligibleForPayment) {
+      await prisma.user.update({
+        where: { id: parent.userId },
+        data: {
+          totalLevelIncome: { increment: parent.shareAmount }
+        }
+      });
+
+      await prisma.transaction.create({
+        data: {
+          txHash: receipt.hash,
+          userId: parent.userId,
+          walletAddress: parent.walletAddress,
+          type: 'LEVEL_INCOME',
+          amount: parent.shareAmount,
+          blockNumber: BigInt(receipt.blockNumber || 0),
+          description: `Level ${parent.level} income from retopup (batch transfer)`
+        }
+      });
+    }
+
+    // Mark manualShareTransfer as true
+    await prisma.retopupPending.update({
+      where: { userId },
+      data: {
+        manualShareTransfer: true,
+        txHash: receipt.hash
+      }
+    });
+
     res.status(200).json({
       success: true,
-      message: 'Manual transfer initiated',
-      userId,
-      note: 'This endpoint should be integrated with your blockchain transfer service'
+      message: 'Batch payment executed successfully',
+      txHash: receipt.hash,
+      blockNumber: receipt.blockNumber.toString(),
+      paymentsCount: eligibleForPayment.length,
+      totalAmount: eligibleForPayment.reduce((sum, p) => sum + p.shareAmount, 0).toString(),
+      payments: eligibleForPayment.map(p => ({
+        level: p.level,
+        userId: p.userId,
+        walletAddress: p.walletAddress,
+        amount: p.shareAmount.toString()
+      }))
     });
-  } catch (error) {
-    console.error('Error in manual transfer:', error);
+  } catch (error: any) {
+    console.error('Error executing batch payment:', error);
     res.status(500).json({
       error: {
         code: 'INTERNAL_SERVER_ERROR',
-        message: 'Failed to initiate manual transfer',
+        message: error.message || 'Failed to execute batch payment',
         traceId: req.headers['x-request-id'] as string || 'unknown',
         timestamp: new Date().toISOString()
       }

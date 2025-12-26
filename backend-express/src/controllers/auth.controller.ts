@@ -433,21 +433,53 @@ export const retopupUser = async(req:Request,res:Response)=>{
         }
 
         console.log(`✅ Token allowance verified: ${ethers.formatEther(allowance)} tokens`);
-        console.log(`📤 Calling smart contract retopup for ${walletAddress}...`);
-
-        const contractWithSigner = getContractWithSigner();
-        const tx = await contractWithSigner.retopup(walletAddress, retopupPrice);
-        console.log(`⏳ Waiting for transaction confirmation: ${tx.hash}`);
         
-        const receipt = await tx.wait();
-        console.log(`✅ Retopup transaction confirmed in block ${receipt.blockNumber}`);
+        // Commented out contract call for manual processing
+        // const contractWithSigner = getContractWithSigner();
+        // const tx = await contractWithSigner.retopup(walletAddress, retopupPrice);
+        // console.log(`⏳ Waiting for transaction confirmation: ${tx.hash}`);
+        // const receipt = await tx.wait();
+        // console.log(`✅ Retopup transaction confirmed in block ${receipt.blockNumber}`);
+
+        // Create pending retopup record with manualShareTransfer = false
+        const retopupAmount = parseFloat(ethers.formatEther(retopupPrice));
+        
+        // Check if pending retopup already exists
+        const existingPending = await prisma.retopupPending.findUnique({
+            where: { userId: dbUser.id }
+        });
+
+        if (existingPending) {
+            return res.status(400).json({ 
+                error: 'Retopup already pending',
+                canRetopup: false,
+                reason: 'A retopup is already pending for this user'
+            });
+        }
+
+        // Create pending retopup record
+        await prisma.retopupPending.create({
+            data: {
+                userId: dbUser.id,
+                walletAddress: dbUser.walletAddress,
+                retopupAmount: retopupAmount,
+                manualShareTransfer: false
+            }
+        });
+
+        // Mark user as having retopup
+        await prisma.user.update({
+            where: { id: dbUser.id },
+            data: { hasReTopup: true }
+        });
+
+        console.log(`✅ Retopup pending record created for ${walletAddress}`);
 
         return res.status(200).json({ 
             success: true,
-            message: 'Retopup successful',
-            txHash: receipt.hash,
-            blockNumber: receipt.blockNumber.toString(),
-            amount: ethers.formatEther(retopupPrice)
+            message: 'Retopup request created successfully. Awaiting admin approval.',
+            amount: ethers.formatEther(retopupPrice),
+            manualShareTransfer: false
         });
 
     } catch (error: any) {

@@ -13,8 +13,11 @@ router.get('/members/:userId/income', adminAuth, adminController.getUserIncomeDe
 
 router.get('/slots/report', adminAuth, adminController.getSlotReport);
 
+// Retopup flow endpoints
+router.get('/retopups/pending', adminAuth, adminController.getPendingRetopups);
 router.get('/level-income/eligible-parents', adminAuth, adminController.getLevelIncomeEligibleParents);
-router.post('/level-income/manual-transfer', adminAuth, adminController.manualTransferLevelIncome);
+router.post('/level-income/execute-single', adminAuth, adminController.executeSinglePayment);
+router.post('/level-income/execute-batch', adminAuth, adminController.executeBatchPayment);
 
 router.get('/income/overall', adminAuth, adminController.getOverallIncomeReport);
 router.get('/income/direct', adminAuth, adminController.getDirectIncomeReport);

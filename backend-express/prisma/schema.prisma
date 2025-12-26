@@ -29,6 +29,7 @@ model User {
   children     User[]        @relation("UserHierarchy")
   autoPoolNode AutoPoolNode?
   autoPoolReservedIncome AutoPoolReservedIncome[]
+  retopupPending RetopupPending?
 
   @@map("users")
 }
@@ -124,4 +125,21 @@ model AutoPoolTree {
   @@unique([poolLevel, treeNumber])
   @@index([poolLevel])
   @@map("auto_pool_trees")
+}
+
+model RetopupPending {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  walletAddress       String
+  retopupAmount       Decimal  @db.Decimal(20, 18)
+  manualShareTransfer Boolean  @default(false) @map("manual_share_transfer")
+  txHash              String?  @map("tx_hash")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+  
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([manualShareTransfer])
+  @@index([createdAt])
+  @@map("retopup_pending")
 }
