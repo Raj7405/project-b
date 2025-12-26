@@ -38,6 +38,8 @@ export const TOKEN_ABI = [
   "function balanceOf(address account) view returns (uint256)",
   "function allowance(address owner, address spender) view returns (uint256)",
   "function approve(address spender, uint256 amount) returns (bool)",
+  "function transfer(address to, uint256 amount) returns (bool)",
+  "function transferFrom(address from, address to, uint256 amount) returns (bool)",
   "function decimals() view returns (uint8)",
   "function symbol() view returns (string)",
   "function name() view returns (string)"
@@ -82,5 +84,20 @@ export const getTokenContract = () => {
     throw new Error('TOKEN_ADDRESS not set in environment');
   }
   return new ethers.Contract(tokenAddress, TOKEN_ABI, provider);
+};
+
+// Get token contract instance with signer (for write operations like transfer)
+export const getTokenContractWithSigner = () => {
+  const privateKey = process.env.BACKEND_PRIVATE_KEY;
+  if (!privateKey) {
+    throw new Error('BACKEND_PRIVATE_KEY not set in environment');
+  }
+  const provider = getProvider();
+  const signer = new ethers.Wallet(privateKey, provider);
+  const tokenAddress = process.env.TOKEN_ADDRESS;
+  if (!tokenAddress) {
+    throw new Error('TOKEN_ADDRESS not set in environment');
+  }
+  return new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
 };
 
