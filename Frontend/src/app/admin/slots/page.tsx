@@ -5,6 +5,7 @@ import AdminLayout from '@/components/admin/AdminLayout'
 import { useAdmin } from '@/contexts/AdminContext'
 import { adminApi } from '@/services/api.service'
 import toast from 'react-hot-toast'
+import { FaSearch } from 'react-icons/fa'
 
 export default function SlotsPage() {
   const { accessToken } = useAdmin()
@@ -68,7 +69,7 @@ export default function SlotsPage() {
                 </>
               ) : (
                 <>
-                  <span>🔍</span>
+                  <FaSearch />
                   <span>Search</span>
                 </>
               )}

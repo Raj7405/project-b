@@ -5,6 +5,7 @@ import AdminLayout from '@/components/admin/AdminLayout'
 import { useAdmin } from '@/contexts/AdminContext'
 import { adminApi } from '@/services/api.service'
 import toast from 'react-hot-toast'
+import { FaChartBar, FaUsers, FaSearch, FaDollarSign } from 'react-icons/fa'
 
 type ReportType = 'overall' | 'direct' | 'slot' | 'level'
 
@@ -74,10 +75,10 @@ export default function IncomeReportsPage() {
   }
 
   const tabs = [
-    { id: 'overall' as ReportType, label: 'Overall Income', icon: '📊' },
-    { id: 'direct' as ReportType, label: 'Direct Income', icon: '👥' },
-    { id: 'slot' as ReportType, label: 'Slot Income', icon: '🔍' },
-    { id: 'level' as ReportType, label: 'Level Income', icon: '💰' },
+    { id: 'overall' as ReportType, label: 'Overall Income', icon: FaChartBar },
+    { id: 'direct' as ReportType, label: 'Direct Income', icon: FaUsers },
+    { id: 'slot' as ReportType, label: 'Slot Income', icon: FaSearch },
+    { id: 'level' as ReportType, label: 'Level Income', icon: FaDollarSign },
   ]
 
   return (
@@ -98,13 +99,13 @@ export default function IncomeReportsPage() {
                 setActiveTab(tab.id)
                 setPage(0)
               }}
-              className={`flex-1 px-4 py-3 rounded-lg font-semibold transition-all ${
+              className={`flex-1 px-4 py-3 rounded-lg font-semibold transition-all flex items-center justify-center gap-2 ${
                 activeTab === tab.id
                   ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg'
                   : 'text-slate-300 hover:bg-slate-700/50'
               }`}
             >
-              <span className="mr-2">{tab.icon}</span>
+              <tab.icon />
               {tab.label}
             </button>
           ))}
@@ -332,4 +333,5 @@ export default function IncomeReportsPage() {
     </AdminLayout>
   )
 }
+
 

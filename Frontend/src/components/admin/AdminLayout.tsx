@@ -5,6 +5,14 @@ import { useRouter } from 'next/navigation'
 import { useAdmin } from '@/contexts/AdminContext'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { 
+  FaChartBar, 
+  FaUsers, 
+  FaSearch, 
+  FaDollarSign, 
+  FaChartLine,
+  FaSignOutAlt
+} from 'react-icons/fa'
 
 interface AdminLayoutProps {
   children: React.ReactNode
@@ -34,11 +42,11 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   }
 
   const navItems = [
-    { href: '/admin/dashboard', label: 'Dashboard', icon: '📊' },
-    { href: '/admin/members', label: 'Member Register', icon: '👥' },
-    { href: '/admin/slots', label: 'Slot Report', icon: '🔍' },
-    { href: '/admin/level-income', label: 'Level Income', icon: '💰' },
-    { href: '/admin/income-reports', label: 'Income Reports', icon: '📈' },
+    { href: '/admin/dashboard', label: 'Dashboard', icon: FaChartBar },
+    { href: '/admin/members', label: 'Member Register', icon: FaUsers },
+    { href: '/admin/slots', label: 'Slot Report', icon: FaSearch },
+    { href: '/admin/level-income', label: 'Level Income', icon: FaDollarSign },
+    { href: '/admin/income-reports', label: 'Income Reports', icon: FaChartLine },
   ]
 
   return (
@@ -65,7 +73,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                     : 'text-slate-300 hover:bg-slate-800 hover:text-white'
                 }`}
               >
-                <span className="text-lg">{item.icon}</span>
+                <item.icon className="text-lg" />
                 <span className="font-medium">{item.label}</span>
               </Link>
             )
@@ -82,9 +90,10 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
           </div>
           <button
             onClick={logout}
-            className="w-full px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-all text-sm font-medium"
+            className="w-full px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-all text-sm font-medium flex items-center justify-center gap-2"
           >
-            Logout
+            <FaSignOutAlt />
+            <span>Logout</span>
           </button>
         </div>
       </aside>

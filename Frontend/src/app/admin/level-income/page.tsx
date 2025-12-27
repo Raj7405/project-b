@@ -5,6 +5,7 @@ import AdminLayout from '@/components/admin/AdminLayout'
 import { useAdmin } from '@/contexts/AdminContext'
 import { adminApi } from '@/services/api.service'
 import toast from 'react-hot-toast'
+import { FaSearch, FaDollarSign, FaExclamationTriangle } from 'react-icons/fa'
 
 export default function LevelIncomePage() {
   const { accessToken } = useAdmin()
@@ -89,7 +90,7 @@ export default function LevelIncomePage() {
                 </>
               ) : (
                 <>
-                  <span>🔍</span>
+                  <FaSearch />
                   <span>Search</span>
                 </>
               )}
@@ -117,7 +118,7 @@ export default function LevelIncomePage() {
                       </>
                     ) : (
                       <>
-                        <span>💰</span>
+                        <FaDollarSign />
                         <span>Manual Transfer</span>
                       </>
                     )}
@@ -141,9 +142,10 @@ export default function LevelIncomePage() {
                 </div>
               </div>
               {!levelData.manualShareTransfer && (
-                <div className="mt-4 p-4 bg-yellow-600/20 border border-yellow-600/50 rounded-lg">
+                <div className="mt-4 p-4 bg-yellow-600/20 border border-yellow-600/50 rounded-lg flex items-start gap-2">
+                  <FaExclamationTriangle className="text-yellow-400 mt-0.5 flex-shrink-0" />
                   <p className="text-yellow-400 text-sm">
-                    ⚠️ Manual transfer mode is enabled. You need to manually trigger blockchain transfers for income distribution.
+                    Manual transfer mode is enabled. You need to manually trigger blockchain transfers for income distribution.
                   </p>
                 </div>
               )}

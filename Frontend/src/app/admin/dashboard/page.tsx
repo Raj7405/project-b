@@ -2,6 +2,7 @@
 
 import AdminLayout from '@/components/admin/AdminLayout'
 import { useAdmin } from '@/contexts/AdminContext'
+import { FaUsers, FaDollarSign, FaSearch, FaClock, FaChartLine } from 'react-icons/fa'
 
 export default function AdminDashboardPage() {
   const { admin } = useAdmin()
@@ -24,7 +25,7 @@ export default function AdminDashboardPage() {
                 <p className="text-2xl font-bold text-white">-</p>
               </div>
               <div className="w-12 h-12 bg-blue-600/20 rounded-lg flex items-center justify-center">
-                <span className="text-2xl">👥</span>
+                <FaUsers className="text-2xl text-blue-400" />
               </div>
             </div>
           </div>
@@ -36,7 +37,7 @@ export default function AdminDashboardPage() {
                 <p className="text-2xl font-bold text-white">-</p>
               </div>
               <div className="w-12 h-12 bg-green-600/20 rounded-lg flex items-center justify-center">
-                <span className="text-2xl">💰</span>
+                <FaDollarSign className="text-2xl text-green-400" />
               </div>
             </div>
           </div>
@@ -48,7 +49,7 @@ export default function AdminDashboardPage() {
                 <p className="text-2xl font-bold text-white">-</p>
               </div>
               <div className="w-12 h-12 bg-purple-600/20 rounded-lg flex items-center justify-center">
-                <span className="text-2xl">🔍</span>
+                <FaSearch className="text-2xl text-purple-400" />
               </div>
             </div>
           </div>
@@ -60,7 +61,7 @@ export default function AdminDashboardPage() {
                 <p className="text-2xl font-bold text-white">-</p>
               </div>
               <div className="w-12 h-12 bg-yellow-600/20 rounded-lg flex items-center justify-center">
-                <span className="text-2xl">⏳</span>
+                <FaClock className="text-2xl text-yellow-400" />
               </div>
             </div>
           </div>
@@ -74,7 +75,7 @@ export default function AdminDashboardPage() {
               href="/admin/members"
               className="p-4 bg-slate-700/50 hover:bg-slate-700 rounded-lg transition-all border border-slate-600 hover:border-blue-500"
             >
-              <div className="text-2xl mb-2">👥</div>
+              <FaUsers className="text-2xl mb-2 text-blue-400" />
               <h3 className="font-semibold text-white mb-1">View Members</h3>
               <p className="text-sm text-slate-400">Browse all registered users</p>
             </a>
@@ -83,7 +84,7 @@ export default function AdminDashboardPage() {
               href="/admin/income-reports"
               className="p-4 bg-slate-700/50 hover:bg-slate-700 rounded-lg transition-all border border-slate-600 hover:border-green-500"
             >
-              <div className="text-2xl mb-2">📈</div>
+              <FaChartLine className="text-2xl mb-2 text-green-400" />
               <h3 className="font-semibold text-white mb-1">Income Reports</h3>
               <p className="text-sm text-slate-400">View income analytics</p>
             </a>
@@ -92,7 +93,7 @@ export default function AdminDashboardPage() {
               href="/admin/level-income"
               className="p-4 bg-slate-700/50 hover:bg-slate-700 rounded-lg transition-all border border-slate-600 hover:border-purple-500"
             >
-              <div className="text-2xl mb-2">💰</div>
+              <FaDollarSign className="text-2xl mb-2 text-purple-400" />
               <h3 className="font-semibold text-white mb-1">Level Income</h3>
               <p className="text-sm text-slate-400">Manage retopup income</p>
             </a>
