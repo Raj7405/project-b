@@ -82,7 +82,7 @@ export default function WalletControl() {
           ) : (
             <>
               <FaWallet />
-              <span className="hidden sm:inline">Connect Wallet</span>
+              <span className="hidden sm:inline ml-2">Connect Wallet</span>
             </>
           )}
         </button>
