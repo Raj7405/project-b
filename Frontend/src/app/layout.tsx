@@ -4,8 +4,6 @@ import "./globals.css";
 import { Web3Provider } from "@/contexts/Web3Context";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { Toaster } from "react-hot-toast";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
 import dynamic from "next/dynamic"; 
 const NavigationProgressBar = dynamic(() => import("@/components/NavigationProgressBar"), { ssr: false });
 const ConditionalLayout = dynamic(() => import("@/components/ConditionalLayout"), { ssr: false });

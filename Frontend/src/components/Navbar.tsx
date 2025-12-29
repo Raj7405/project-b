@@ -2,16 +2,20 @@
 
 import { useState } from 'react'
 import { useWeb3 } from '@/contexts/Web3Context'
+import { useAuth } from '@/contexts/AuthContext'
 import { FaSignInAlt, FaSignOutAlt, FaBars, FaTimes, FaWallet, FaSpinner } from 'react-icons/fa'
 import Link from 'next/link'
 import Image from 'next/image'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
+import toast from 'react-hot-toast'
 
 export default function Navbar() {
   const { account, connectWallet, disconnectWallet, chainId } = useWeb3()
+  const { user, logout: authLogout } = useAuth()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isConnecting, setIsConnecting] = useState(false)
   const pathname = usePathname()
+  const router = useRouter()
 
   const formatAddress = (addr: string) => {
     return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`
@@ -51,7 +55,35 @@ export default function Navbar() {
     }
   }
 
+  const handleLogout = () => {
+    // Clear all data: auth tokens, wallet connection, localStorage
+    authLogout() // Clears auth tokens and user data
+    disconnectWallet() // Clears wallet connection
+    setIsMobileMenuOpen(false)
+    toast.success('Logged out successfully. All data cleared.')
+    // Redirect to home page
+    router.push('/')
+  }
+
+  const handleDisconnectWallet = () => {
+    // Disconnect wallet only (don't logout if user is not logged in)
+    disconnectWallet() // Clears wallet connection
+    setIsMobileMenuOpen(false)
+    
+    // Only logout if user is actually logged in
+    if (isLoggedIn) {
+      authLogout() // Clear auth data when wallet is disconnected
+      toast.success('Wallet disconnected and logged out. All data cleared.')
+    } else {
+      toast.success('Wallet disconnected.')
+    }
+    
+    // Redirect to home page
+    router.push('/')
+  }
+
   const isRegistrationPage = pathname === '/registration'
+  const isLoggedIn = user !== null // User is logged in if auth context has user data
 
   return (
     <nav className={`glass-effect sticky w-full top-0 z-50 shadow-lg ${isMobileMenuOpen && 'h-screen'}`}>
@@ -96,7 +128,46 @@ export default function Navbar() {
               </span>
             )}
             
-            {!account ? (
+            {account ? (
+              // Wallet is connected - show wallet address and disconnect option
+              <div className="flex items-center space-x-3">
+                <span className="text-sm font-medium text-gray-700 bg-gray-100 px-4 py-2 rounded-lg">
+                  {formatAddress(account)}
+                </span>
+                {isLoggedIn ? (
+                  // Logged in: Show both Disconnect Wallet and Logout buttons
+                  <>
+                    <button
+                      onClick={handleDisconnectWallet}
+                      className="flex items-center space-x-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg transition-all"
+                      title="Disconnect Wallet"
+                    >
+                      <FaWallet />
+                      <span>Disconnect</span>
+                    </button>
+                    <button
+                      onClick={handleLogout}
+                      className="flex items-center space-x-2 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-all"
+                      title="Logout and clear all data"
+                    >
+                      <FaSignOutAlt />
+                      <span>Logout</span>
+                    </button>
+                  </>
+                ) : (
+                  // Wallet connected but NOT logged in: Show only Disconnect Wallet
+                  <button
+                    onClick={handleDisconnectWallet}
+                    className="flex items-center space-x-2 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-all"
+                    title="Disconnect Wallet"
+                  >
+                    <FaSignOutAlt />
+                    <span>Disconnect</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              // No wallet connected
               isRegistrationPage ? (
                 <button
                   onClick={handleConnectWallet}
@@ -123,19 +194,6 @@ export default function Navbar() {
                   </button>
                 </Link>
               )
-            ) : (
-              <div className="flex items-center space-x-3">
-                <span className="text-sm font-medium text-gray-700 bg-gray-100 px-4 py-2 rounded-lg">
-                  {formatAddress(account)}
-                </span>
-                <button
-                  onClick={disconnectWallet}
-                  className="flex items-center space-x-2 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-all"
-                  title="Disconnect"
-                >
-                  <FaSignOutAlt />
-                </button>
-              </div>
             )}
           </div>
 
@@ -178,7 +236,49 @@ export default function Navbar() {
 
             {/* Wallet Section */}
             <div className="pt-2">
-              {!account ? (
+              {account ? (
+                // Wallet is connected
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-gray-700 bg-gray-100 px-4 py-2 rounded-lg text-center">
+                    {formatAddress(account)}
+                  </div>
+                  {isLoggedIn ? (
+                    // Logged in: Show both Disconnect Wallet and Logout buttons
+                    <>
+                      <button
+                        onClick={() => {
+                          handleDisconnectWallet()
+                        }}
+                        className="flex items-center justify-center space-x-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg transition-all w-full"
+                      >
+                        <FaWallet />
+                        <span>Disconnect Wallet</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          handleLogout()
+                        }}
+                        className="flex items-center justify-center space-x-2 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-all w-full"
+                      >
+                        <FaSignOutAlt />
+                        <span>Logout</span>
+                      </button>
+                    </>
+                  ) : (
+                    // Wallet connected but NOT logged in: Show only Disconnect Wallet
+                    <button
+                      onClick={() => {
+                        handleDisconnectWallet()
+                      }}
+                      className="flex items-center justify-center space-x-2 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-all w-full"
+                    >
+                      <FaSignOutAlt />
+                      <span>Disconnect Wallet</span>
+                    </button>
+                  )}
+                </div>
+              ) : (
+                // No wallet connected
                 isRegistrationPage ? (
                   <button
                     onClick={() => {
@@ -211,22 +311,6 @@ export default function Navbar() {
                     </button>
                   </Link>
                 )
-              ) : (
-                <div className="space-y-2">
-                  <div className="text-sm font-medium text-gray-700 bg-gray-100 px-4 py-2 rounded-lg text-center">
-                    {formatAddress(account)}
-                  </div>
-                  <button
-                    onClick={() => {
-                      disconnectWallet()
-                      setIsMobileMenuOpen(false)
-                    }}
-                    className="flex items-center justify-center space-x-2 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-all w-full"
-                  >
-                    <FaSignOutAlt />
-                    <span>Disconnect</span>
-                  </button>
-                </div>
               )}
             </div>
           </div>

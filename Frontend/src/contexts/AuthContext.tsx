@@ -306,20 +306,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   /**
    * Logout - clear all auth state and persisted data
+   * This function clears ALL user data from localStorage and state
    */
   const logout = useCallback(() => {
+    // Clear all state
     setUser(null)
     setAccessToken(null)
     setRefreshToken(null)
     setIsAuthorized(false)
-    // Clear all persisted auth data
+    
+    // Clear all persisted data from localStorage
     localStorage.removeItem('accessToken')
     localStorage.removeItem('refreshToken')
     localStorage.removeItem('walletAddress')
     localStorage.removeItem('walletConnected')
+    
+    // Clear any other potential stored data
+    localStorage.removeItem('user')
+    localStorage.removeItem('userId')
+    
+    // Reset refs
     loginInProgress.current = false
     isInitializing.current = false
-    toast.success('Logged out successfully')
+    hasInitialized.current = false
+    
+    console.log('✅ All user data cleared from localStorage and state')
   }, [])
 
   return (

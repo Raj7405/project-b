@@ -107,10 +107,19 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     setTokenContract(null)
     setChainId(null)
     setIsOwner(false)
+    
     // Clear persisted wallet connection
     localStorage.removeItem('walletAddress')
     localStorage.removeItem('walletConnected')
-    toast.success('Wallet disconnected')
+    
+    // Also clear auth data when wallet is disconnected (logout)
+    // This ensures that disconnecting wallet = logging out
+    localStorage.removeItem('accessToken')
+    localStorage.removeItem('refreshToken')
+    localStorage.removeItem('user')
+    localStorage.removeItem('userId')
+    
+    console.log('✅ Wallet disconnected and all data cleared')
   }
 
   // Restore wallet connection on mount

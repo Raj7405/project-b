@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Footer from './Footer'
+import WalletControl from './WalletControl'
 import { isAdminLoggedIn } from '@/contexts/AdminContext'
 
 export default function ConditionalLayout({ children }: { children: React.ReactNode }) {
@@ -38,14 +39,14 @@ export default function ConditionalLayout({ children }: { children: React.ReactN
     )
   }
 
-  // Main app routes - include Footer
+  // Main app routes - include WalletControl and Footer
   return (
     <div className="flex flex-col min-h-screen">
-      {/* <Navbar /> */}
       <main className="grow">
         {children}
       </main>
       <Footer />
+      <WalletControl />
     </div>
   )
 }

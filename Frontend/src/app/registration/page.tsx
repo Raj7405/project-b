@@ -1,4 +1,3 @@
-import Navbar from '@/components/Navbar'
 import RegistrationPage from '@/components/RegistrationPage'
 
 export default function Registration() {

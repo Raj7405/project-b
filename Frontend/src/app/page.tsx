@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import Navbar from '@/components/Navbar'
 import Dashboard from '@/components/Dashboard'
 import Register from '@/components/Register'
 import ReTopup from '@/components/ReTopup'
