@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { startBlockchainListener } from './services/blockchain-listener.service';
-import { startBlockchainWsListener } from './services/blockchain-ws-listerner-service';
+import { startBlockchainWsListener } from './services/blockchain-ws-listerner.service';
 import authRoutes from './routes/auth.routes';
 import transactionRoutes from './routes/transaction.routes';
 import adminRoutes from './routes/admin.routes';

@@ -1,6 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+/**
+ * @title PaymentReconciliation
+ * @notice Smart contract for accepting USDT (BEP-20) payments on BNB Smart Chain.
+ *         Users pay in USDT, gas fees are paid in BNB (native token).
+ *         Emits deterministic payment events for backend reconciliation.
+ * 
+ * @dev Architecture Decision Record (ADR): Blockchain Payment Reconciliation Architecture
+ *      - Contract accepts USDT (BEP-20) for payments
+ *      - Gas fees are paid in BNB (automatic, native token)
+ *      - Emits PaymentReceived events for backend reconciliation
+ *      - Events are tracked by: tx_hash, log_index, chain_id (for idempotency)
+ *      - Maintains all existing business logic functions
+ */
 interface IBEP20 {
     function transfer(address recipient, uint256 amount) external returns (bool);
     function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
@@ -93,22 +106,62 @@ abstract contract Ownable {
     }
 }
 
-contract CryptoMLMTransactions is Ownable, ReentrancyGuard {
+/**
+ * @title PaymentReconciliation
+ * @notice MLM payment contract using USDT (BEP-20) on BNB Smart Chain.
+ *         Users pay in USDT, gas fees are paid in BNB (native token).
+ *         Emits ADR-compliant PaymentReceived events alongside existing events.
+ * 
+ * @dev Action Types for PaymentReceived event:
+ *      1 = Registration
+ *      2 = Retopup
+ *      3 = Autopool Entry
+ */
+contract PaymentReconciliation is Ownable, ReentrancyGuard {
     using SafeBEP20 for IBEP20;
 
-    IBEP20 public immutable bnbToken;
+    /// @notice USDT token address (BEP-20) - users pay in USDT
+    IBEP20 public immutable usdtToken;
+    
+    /// @notice Company wallet address for receiving payments
     address public companyWallet;
+    
+    /// @notice Backend wallet address for authorized operations
     address public backendWallet;
 
+    /// @notice Token decimals (typically 18 for USDT on BSC)
     uint8 public immutable tokenDecimals;
+    
+    /// @notice Entry price for registration (in USDT)
     uint256 public immutable entryPrice;
+    
+    /// @notice Retopup price (in USDT)
     uint256 public immutable retopupPrice;
 
+    /// @notice Business logic mappings
     mapping(address => bool) public registered;
     mapping(address => uint256) public retopupCount;
     mapping(address => uint256) public totalPaidIn;
     mapping(address => uint256) public totalPayouts;
 
+    /// @notice Action type constants for PaymentReceived event
+    uint8 public constant ACTION_REGISTRATION = 1;
+    uint8 public constant ACTION_RETOPUP = 2;
+    uint8 public constant ACTION_AUTOPOOL = 3;
+
+    /// @notice ADR-compliant event: PaymentReceived
+    /// @dev This event is used by the backend for reconciliation.
+    ///      Each event is uniquely identified by: tx_hash, log_index, chain_id
+    /// @param user The address of the user making the payment
+    /// @param amount The amount of USDT paid (in token's smallest unit)
+    /// @param actionType The type of action: 1=Registration, 2=Retopup, 3=Autopool
+    event PaymentReceived(
+        address indexed user,
+        uint256 amount,
+        uint8 actionType
+    );
+
+    /// @notice Existing events (maintained for backward compatibility)
     event BackendWalletUpdated(address indexed previousBackend, address indexed newBackend);
     event CompanyWalletUpdated(address indexed previousCompanyWallet, address indexed newCompanyWallet);
     event RegistrationAccepted(address indexed user, address indexed backendCaller, uint256 amount);
@@ -123,16 +176,26 @@ contract CryptoMLMTransactions is Ownable, ReentrancyGuard {
         _;
     }
 
-    constructor(address _bnbToken, address _companyWallet, address _backendWallet) Ownable(msg.sender) {
-        require(_bnbToken != address(0), "Token address required");
+    /**
+     * @notice Constructor initializes the payment contract
+     * @param _usdtToken Address of the USDT token (BEP-20)
+     * @param _companyWallet Address where payments will be collected
+     * @param _backendWallet Address authorized for backend operations
+     */
+    constructor(
+        address _usdtToken,
+        address _companyWallet,
+        address _backendWallet
+    ) Ownable(msg.sender) {
+        require(_usdtToken != address(0), "Token address required");
         require(_companyWallet != address(0), "Company wallet required");
         require(_backendWallet != address(0), "Backend wallet required");
 
-        bnbToken = IBEP20(_bnbToken);
+        usdtToken = IBEP20(_usdtToken);
         companyWallet = _companyWallet;
         backendWallet = _backendWallet;
 
-        uint8 decimals = IBEP20Metadata(_bnbToken).decimals();
+        uint8 decimals = IBEP20Metadata(_usdtToken).decimals();
         require(decimals <= 24, "Unsupported token decimals");
         tokenDecimals = decimals;
         uint256 factor = 10 ** uint256(decimals);
@@ -140,54 +203,106 @@ contract CryptoMLMTransactions is Ownable, ReentrancyGuard {
         retopupPrice = 4e16 * factor / 1e18;  // 0.04 * factor
     }
 
+    /**
+     * @notice Updates the backend wallet address
+     * @dev Only callable by the contract owner
+     * @param newBackendWallet The new backend wallet address
+     */
     function updateBackendWallet(address newBackendWallet) external onlyOwner {
         require(newBackendWallet != address(0), "Backend wallet required");
         emit BackendWalletUpdated(backendWallet, newBackendWallet);
         backendWallet = newBackendWallet;
     }
 
+    /**
+     * @notice Updates the company wallet address
+     * @dev Only callable by the contract owner
+     * @param newCompanyWallet The new company wallet address
+     */
     function updateCompanyWallet(address newCompanyWallet) external onlyOwner {
         require(newCompanyWallet != address(0), "Company wallet required");
         emit CompanyWalletUpdated(companyWallet, newCompanyWallet);
         companyWallet = newCompanyWallet;
     }
 
+    /**
+     * @notice Registers a new user with USDT payment
+     * @dev User must have approved this contract to spend USDT
+     *      Gas fee is paid in BNB (native token)
+     *      Emits both RegistrationAccepted and PaymentReceived events
+     * @param user The address of the user to register
+     * @param amount The amount of USDT to pay (must be >= entryPrice)
+     */
     function register(address user, uint256 amount) external nonReentrant {
         require(user != address(0), "User required");
         require(!registered[user], "Already registered");
         require(amount >= entryPrice, "Insufficient amount");
 
-        bnbToken.safeTransferFrom(user, address(this), amount);
+        // Transfer USDT from user to contract
+        usdtToken.safeTransferFrom(user, address(this), amount);
         registered[user] = true;
         totalPaidIn[user] += amount;
 
+        // Emit existing event (for backward compatibility)
         emit RegistrationAccepted(user, msg.sender, amount);
+        
+        // Emit ADR-compliant PaymentReceived event
+        emit PaymentReceived(user, amount, ACTION_REGISTRATION);
     }
- 
 
+    /**
+     * @notice Processes a retopup payment for a registered user
+     * @dev Only callable by backend wallet
+     *      User must have approved this contract to spend USDT
+     *      Gas fee is paid in BNB (native token)
+     *      Emits both RetopupAccepted and PaymentReceived events
+     * @param user The address of the user making the retopup
+     * @param amount The amount of USDT to pay (must be >= retopupPrice)
+     */
     function retopup(address user, uint256 amount) external onlyBackend nonReentrant {
         require(user != address(0), "User required");
         require(registered[user], "User not registered");
         require(amount >= retopupPrice, "Insufficient amount");
 
-        bnbToken.safeTransferFrom(user, address(this), amount);
+        // Transfer USDT from user to contract
+        usdtToken.safeTransferFrom(user, address(this), amount);
         retopupCount[user] += 1;
         totalPaidIn[user] += amount;
 
+        // Emit existing event (for backward compatibility)
         emit RetopupAccepted(user, msg.sender, amount, retopupCount[user]);
+        
+        // Emit ADR-compliant PaymentReceived event
+        emit PaymentReceived(user, amount, ACTION_RETOPUP);
     }
 
+    /**
+     * @notice Executes a payout to a user
+     * @dev Only callable by backend wallet
+     *      Transfers USDT from contract to user
+     * @param user The address of the user to receive the payout
+     * @param amount The amount of USDT to payout
+     * @param rewardType The type of reward (e.g., "direct_income", "level_income")
+     */
     function payout(address user, uint256 amount, string calldata rewardType) external onlyBackend nonReentrant {
         require(user != address(0), "User required");
         require(amount > 0, "Amount required");
-        require(bnbToken.balanceOf(address(this)) >= amount, "Insufficient contract balance");
+        require(usdtToken.balanceOf(address(this)) >= amount, "Insufficient contract balance");
 
-        bnbToken.safeTransfer(user, amount);
+        usdtToken.safeTransfer(user, amount);
         totalPayouts[user] += amount;
 
         emit PayoutExecuted(user, amount, rewardType);
     }
 
+    /**
+     * @notice Executes batch payouts to multiple users
+     * @dev Only callable by backend wallet
+     *      Maximum 50 users per batch
+     * @param users Array of user addresses
+     * @param amounts Array of USDT amounts (must match users array length)
+     * @param rewardTypes Array of reward types (must match users array length)
+     */
     function executeBatchPayouts(
         address[] calldata users,
         uint256[] calldata amounts,
@@ -204,10 +319,10 @@ contract CryptoMLMTransactions is Ownable, ReentrancyGuard {
             totalAmount += amounts[i];
         }
 
-        require(bnbToken.balanceOf(address(this)) >= totalAmount, "Insufficient contract balance");
+        require(usdtToken.balanceOf(address(this)) >= totalAmount, "Insufficient contract balance");
 
         for (uint256 i = 0; i < length; i++) {
-            bnbToken.safeTransfer(users[i], amounts[i]);
+            usdtToken.safeTransfer(users[i], amounts[i]);
             totalPayouts[users[i]] += amounts[i];
             emit PayoutExecuted(users[i], amounts[i], rewardTypes[i]);
         }
@@ -215,18 +330,31 @@ contract CryptoMLMTransactions is Ownable, ReentrancyGuard {
         emit BatchPayoutCompleted(totalAmount, length);
     }
 
+    /**
+     * @notice Withdraws USDT from the contract to company wallet
+     * @dev Only callable by the contract owner
+     * @param amount The amount of USDT to withdraw
+     * @param recipient The address to receive the tokens (defaults to companyWallet if zero)
+     */
     function withdrawCompanyShare(uint256 amount, address recipient) external onlyOwner nonReentrant {
         require(amount > 0, "Amount required");
         address target = recipient == address(0) ? companyWallet : recipient;
         require(target != address(0), "Recipient required");
-        require(bnbToken.balanceOf(address(this)) >= amount, "Insufficient balance");
+        require(usdtToken.balanceOf(address(this)) >= amount, "Insufficient balance");
 
-        bnbToken.safeTransfer(target, amount);
+        usdtToken.safeTransfer(target, amount);
         emit CompanyWithdrawal(target, amount);
     }
 
+    /**
+     * @notice Rescues external tokens accidentally sent to the contract
+     * @dev Only callable by the contract owner. Cannot rescue USDT (use withdrawCompanyShare instead).
+     * @param token The address of the token to rescue
+     * @param amount The amount of tokens to rescue
+     * @param recipient The address to receive the tokens
+     */
     function rescueExternalToken(address token, uint256 amount, address recipient) external onlyOwner nonReentrant {
-        require(token != address(bnbToken), "Cannot rescue MLM token");
+        require(token != address(usdtToken), "Cannot rescue USDT token");
         require(token != address(0), "Token required");
         require(recipient != address(0), "Recipient required");
 
@@ -234,10 +362,19 @@ contract CryptoMLMTransactions is Ownable, ReentrancyGuard {
         emit ExternalTokenRescued(token, recipient, amount);
     }
 
+    /**
+     * @notice Returns the contract's USDT balance
+     * @return The current USDT balance of the contract
+     */
     function getContractBalance() external view returns (uint256) {
-        return bnbToken.balanceOf(address(this));
+        return usdtToken.balanceOf(address(this));
     }
 
+    /**
+     * @notice Checks if a user has made a retopup
+     * @param user The address of the user to check
+     * @return True if the user has made at least one retopup
+     */
     function hasRetopup(address user) external view returns (bool) {
         return retopupCount[user] > 0;
     }

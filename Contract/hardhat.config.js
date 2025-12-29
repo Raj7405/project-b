@@ -75,6 +75,32 @@ module.exports = {
     
       gasPrice: 10_000_000_000, // 10 gwei
     },
+
+    /**
+     * BSC Mainnet
+     */
+    bscMainnet: {
+      url: process.env.BSC_MAINNET_RPC || "https://bsc-dataseed1.binance.org",
+      chainId: 56,
+    
+      accounts: (() => {
+        const key = process.env.DEPLOYER_PRIVATE_KEY;
+    
+        if (!key) {
+          throw new Error("❌ DEPLOYER_PRIVATE_KEY is missing in .env");
+        }
+    
+        const fixedKey = key.startsWith("0x") ? key : `0x${key}`;
+    
+        if (!/^0x[0-9a-fA-F]{64}$/.test(fixedKey)) {
+          throw new Error("❌ Invalid DEPLOYER_PRIVATE_KEY format");
+        }
+    
+        return [fixedKey];
+      })(),
+    
+      gasPrice: 5_000_000_000, // 5 gwei (adjust based on network conditions)
+    },
   },
 
   paths: {
