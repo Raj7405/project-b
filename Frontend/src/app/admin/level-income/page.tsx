@@ -1,61 +1,112 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import AdminLayout from '@/components/admin/AdminLayout'
 import { useAdmin } from '@/contexts/AdminContext'
 import { adminApi } from '@/services/api.service'
 import toast from 'react-hot-toast'
-import { FaSearch, FaDollarSign, FaExclamationTriangle } from 'react-icons/fa'
+import { FaSearch, FaDollarSign, FaExclamationTriangle, FaCheckCircle, FaSpinner } from 'react-icons/fa'
 
 export default function LevelIncomePage() {
   const { accessToken } = useAdmin()
-  const [userId, setUserId] = useState('')
+  const [pendingRetopups, setPendingRetopups] = useState<any[]>([])
+  const [loadingPending, setLoadingPending] = useState(true)
+  const [selectedUserId, setSelectedUserId] = useState('')
   const [loading, setLoading] = useState(false)
-  const [transferring, setTransferring] = useState(false)
+  const [executing, setExecuting] = useState<string | null>(null) // Track which payment is executing
   const [levelData, setLevelData] = useState<any>(null)
 
-  const handleSearch = async () => {
-    if (!userId.trim()) {
-      toast.error('Please enter a User ID')
-      return
+  // Load pending retopups on mount
+  useEffect(() => {
+    if (accessToken) {
+      loadPendingRetopups()
     }
+  }, [accessToken])
 
+  const loadPendingRetopups = async () => {
     if (!accessToken) return
 
     try {
+      setLoadingPending(true)
+      const response = await adminApi.getPendingRetopups(accessToken)
+      if (response.success) {
+        setPendingRetopups(response.data || [])
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to load pending retopups')
+      setPendingRetopups([])
+    } finally {
+      setLoadingPending(false)
+    }
+  }
+
+  const handleSelectRetopup = async (userId: string) => {
+    if (!accessToken) return
+
+    setSelectedUserId(userId)
+    setLevelData(null)
+
+    try {
       setLoading(true)
-      const response = await adminApi.getLevelIncomeEligibleParents(accessToken, userId.trim())
+      const response = await adminApi.getLevelIncomeEligibleParents(accessToken, userId)
       setLevelData(response)
     } catch (error: any) {
-      toast.error(error.message || 'Failed to fetch level income data')
+      toast.error(error.message || 'Failed to fetch eligible parents')
       setLevelData(null)
     } finally {
       setLoading(false)
     }
   }
 
-  const handleManualTransfer = async () => {
-    if (!accessToken || !levelData) return
+  const handleExecuteSingle = async (parentUserId: string, level: number) => {
+    if (!accessToken || !selectedUserId) return
 
-    if (!confirm('Are you sure you want to manually transfer level income shares? This action cannot be undone.')) {
+    const paymentKey = `${selectedUserId}-${parentUserId}-${level}`
+    setExecuting(paymentKey)
+
+    try {
+      await adminApi.executeSinglePayment(accessToken, selectedUserId, parentUserId, level)
+      toast.success(`Payment executed successfully for Level ${level}`)
+      // Refresh eligible parents data
+      await handleSelectRetopup(selectedUserId)
+      // Refresh pending retopups list
+      await loadPendingRetopups()
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to execute payment')
+    } finally {
+      setExecuting(null)
+    }
+  }
+
+  const handleExecuteBatch = async () => {
+    if (!accessToken || !selectedUserId) return
+
+    if (!confirm('Are you sure you want to execute batch payment for all eligible parents? This action cannot be undone.')) {
       return
     }
 
+    setExecuting('batch')
+
     try {
-      setTransferring(true)
-      const response = await adminApi.manualTransferLevelIncome(accessToken, levelData.retopupUserId)
-      toast.success('Manual transfer initiated successfully')
-      // Refresh data after transfer
-      await handleSearch()
+      await adminApi.executeBatchPayment(accessToken, selectedUserId)
+      toast.success('Batch payment executed successfully for all eligible parents')
+      // Refresh eligible parents data
+      await handleSelectRetopup(selectedUserId)
+      // Refresh pending retopups list
+      await loadPendingRetopups()
     } catch (error: any) {
-      toast.error(error.message || 'Failed to initiate manual transfer')
+      toast.error(error.message || 'Failed to execute batch payment')
     } finally {
-      setTransferring(false)
+      setExecuting(null)
     }
   }
 
   const formatCurrency = (value: string) => {
     return parseFloat(value).toFixed(2)
+  }
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleString()
   }
 
   return (
@@ -67,96 +118,150 @@ export default function LevelIncomePage() {
           <p className="text-slate-400">Manage level income distribution based on retopup events</p>
         </div>
 
-        {/* Search Input */}
+        {/* Pending Retopups Section */}
         <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700">
-          <div className="flex gap-4">
-            <input
-              type="text"
-              placeholder="Enter User ID who performed retopup..."
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-              className="flex-1 px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-white">Pending Retopups</h2>
             <button
-              onClick={handleSearch}
-              disabled={loading}
-              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              onClick={loadPendingRetopups}
+              disabled={loadingPending}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              {loading ? (
+              {loadingPending ? (
                 <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                  <span>Searching...</span>
+                  <FaSpinner className="animate-spin" />
+                  <span>Loading...</span>
                 </>
               ) : (
                 <>
                   <FaSearch />
-                  <span>Search</span>
+                  <span>Refresh</span>
                 </>
               )}
             </button>
           </div>
+
+          {loadingPending ? (
+            <div className="p-12 text-center">
+              <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+              <p className="mt-4 text-slate-400">Loading pending retopups...</p>
+            </div>
+          ) : pendingRetopups.length === 0 ? (
+            <div className="p-12 text-center">
+              <p className="text-slate-400">No pending retopups found</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-900/50 border-b border-slate-700">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-300 uppercase">User ID</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-300 uppercase">Wallet Address</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-300 uppercase">Retopup Date</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-300 uppercase">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700">
+                  {pendingRetopups.map((retopup: any) => (
+                    <tr
+                      key={retopup.userId}
+                      className={`hover:bg-slate-800/50 transition-colors ${
+                        selectedUserId === retopup.userId ? 'bg-blue-600/10' : ''
+                      }`}
+                    >
+                      <td className="px-4 py-3 text-sm font-medium text-white">{retopup.userId}</td>
+                      <td className="px-4 py-3 text-sm text-slate-300 font-mono">
+                        {retopup.walletAddress?.slice(0, 6)}...{retopup.walletAddress?.slice(-4)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-400">
+                        {retopup.createdAt ? formatDate(retopup.createdAt) : '-'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => handleSelectRetopup(retopup.userId)}
+                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-all flex items-center gap-2"
+                        >
+                          <FaSearch />
+                          <span>View Eligible Parents</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
-        {/* Results */}
-        {levelData && (
+        {/* Eligible Parents Section */}
+        {selectedUserId && (
           <div className="space-y-6">
             {/* Retopup Info */}
-            <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold text-white">Retopup Information</h2>
+            {levelData && (
+              <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-bold text-white">Eligible Parents for {selectedUserId}</h2>
+                  {!levelData.manualShareTransfer && levelData.eligibleParents && levelData.eligibleParents.length > 0 && (
+                    <button
+                      onClick={handleExecuteBatch}
+                      disabled={executing === 'batch'}
+                      className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {executing === 'batch' ? (
+                        <>
+                          <FaSpinner className="animate-spin" />
+                          <span>Processing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <FaCheckCircle />
+                          <span>Execute Batch Payment</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                  <div className="bg-slate-900/50 rounded-lg p-4">
+                    <p className="text-slate-400 text-sm mb-1">Retopup User ID</p>
+                    <p className="text-white font-semibold">{levelData.retopupUserId}</p>
+                  </div>
+                  <div className="bg-slate-900/50 rounded-lg p-4">
+                    <p className="text-slate-400 text-sm mb-1">Retopup Amount</p>
+                    <p className="text-white font-semibold">${formatCurrency(levelData.retopupAmount)}</p>
+                  </div>
+                  <div className="bg-slate-900/50 rounded-lg p-4">
+                    <p className="text-slate-400 text-sm mb-1">Transfer Mode</p>
+                    <p className={`font-semibold ${levelData.manualShareTransfer ? 'text-green-400' : 'text-yellow-400'}`}>
+                      {levelData.manualShareTransfer ? 'Automatic' : 'Manual'}
+                    </p>
+                  </div>
+                </div>
                 {!levelData.manualShareTransfer && (
-                  <button
-                    onClick={handleManualTransfer}
-                    disabled={transferring}
-                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                  >
-                    {transferring ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                        <span>Transferring...</span>
-                      </>
-                    ) : (
-                      <>
-                        <FaDollarSign />
-                        <span>Manual Transfer</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="p-4 bg-yellow-600/20 border border-yellow-600/50 rounded-lg flex items-start gap-2">
+                    <FaExclamationTriangle className="text-yellow-400 mt-0.5 flex-shrink-0" />
+                    <p className="text-yellow-400 text-sm">
+                      Manual transfer mode is enabled. Execute payments individually or use batch payment to pay all eligible parents at once.
+                    </p>
+                  </div>
                 )}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-slate-900/50 rounded-lg p-4">
-                  <p className="text-slate-400 text-sm mb-1">Retopup User ID</p>
-                  <p className="text-white font-semibold">{levelData.retopupUserId}</p>
-                </div>
-                <div className="bg-slate-900/50 rounded-lg p-4">
-                  <p className="text-slate-400 text-sm mb-1">Retopup Amount</p>
-                  <p className="text-white font-semibold">${formatCurrency(levelData.retopupAmount)}</p>
-                </div>
-                <div className="bg-slate-900/50 rounded-lg p-4">
-                  <p className="text-slate-400 text-sm mb-1">Transfer Mode</p>
-                  <p className={`font-semibold ${levelData.manualShareTransfer ? 'text-green-400' : 'text-yellow-400'}`}>
-                    {levelData.manualShareTransfer ? 'Automatic' : 'Manual'}
-                  </p>
-                </div>
-              </div>
-              {!levelData.manualShareTransfer && (
-                <div className="mt-4 p-4 bg-yellow-600/20 border border-yellow-600/50 rounded-lg flex items-start gap-2">
-                  <FaExclamationTriangle className="text-yellow-400 mt-0.5 flex-shrink-0" />
-                  <p className="text-yellow-400 text-sm">
-                    Manual transfer mode is enabled. You need to manually trigger blockchain transfers for income distribution.
-                  </p>
-                </div>
-              )}
-            </div>
+            )}
 
-            {/* Eligible Parents */}
-            {levelData.eligibleParents && levelData.eligibleParents.length > 0 && (
+            {/* Loading State */}
+            {loading && (
+              <div className="bg-slate-800/50 rounded-xl p-12 border border-slate-700 text-center">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+                <p className="mt-4 text-slate-400">Loading eligible parents...</p>
+              </div>
+            )}
+
+            {/* Eligible Parents Table */}
+            {levelData && levelData.eligibleParents && levelData.eligibleParents.length > 0 && (
               <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700">
-                <h2 className="text-xl font-bold text-white mb-4">
+                <h3 className="text-lg font-bold text-white mb-4">
                   Eligible Parents (Top {levelData.totalLevels || levelData.eligibleParents.length} Levels)
-                </h2>
+                </h3>
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-slate-900/50 border-b border-slate-700">
@@ -167,29 +272,57 @@ export default function LevelIncomePage() {
                         <th className="px-4 py-3 text-left text-xs font-semibold text-slate-300 uppercase">Share %</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-slate-300 uppercase">Share Amount</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-slate-300 uppercase">Re-Topup Status</th>
+                        {!levelData.manualShareTransfer && (
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-300 uppercase">Action</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700">
-                      {levelData.eligibleParents.map((parent: any, index: number) => (
-                        <tr key={index} className="hover:bg-slate-800/50 transition-colors">
-                          <td className="px-4 py-3 text-sm font-medium text-white">{parent.level}</td>
-                          <td className="px-4 py-3 text-sm font-medium text-white">{parent.userId}</td>
-                          <td className="px-4 py-3 text-sm text-slate-300 font-mono">
-                            {parent.walletAddress.slice(0, 6)}...{parent.walletAddress.slice(-4)}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-blue-400">{parent.sharePercentage.toFixed(2)}%</td>
-                          <td className="px-4 py-3 text-sm text-green-400 font-semibold">
-                            ${formatCurrency(parent.shareAmount)}
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                              parent.hasReTopup ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'
-                            }`}>
-                              {parent.hasReTopup ? 'Active' : 'Inactive'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                      {levelData.eligibleParents.map((parent: any, index: number) => {
+                        const paymentKey = `${selectedUserId}-${parent.userId}-${parent.level}`
+                        const isExecuting = executing === paymentKey
+                        return (
+                          <tr key={index} className="hover:bg-slate-800/50 transition-colors">
+                            <td className="px-4 py-3 text-sm font-medium text-white">{parent.level}</td>
+                            <td className="px-4 py-3 text-sm font-medium text-white">{parent.userId}</td>
+                            <td className="px-4 py-3 text-sm text-slate-300 font-mono">
+                              {parent.walletAddress.slice(0, 6)}...{parent.walletAddress.slice(-4)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-blue-400">{parent.sharePercentage.toFixed(2)}%</td>
+                            <td className="px-4 py-3 text-sm text-green-400 font-semibold">
+                              ${formatCurrency(parent.shareAmount)}
+                            </td>
+                            <td className="px-4 py-3 text-sm">
+                              <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                                parent.hasReTopup ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'
+                              }`}>
+                                {parent.hasReTopup ? 'Active' : 'Inactive'}
+                              </span>
+                            </td>
+                            {!levelData.manualShareTransfer && (
+                              <td className="px-4 py-3">
+                                <button
+                                  onClick={() => handleExecuteSingle(parent.userId, parent.level)}
+                                  disabled={isExecuting || executing !== null}
+                                  className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                >
+                                  {isExecuting ? (
+                                    <>
+                                      <FaSpinner className="animate-spin" />
+                                      <span>Processing...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <FaDollarSign />
+                                      <span>Pay</span>
+                                    </>
+                                  )}
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -216,7 +349,7 @@ export default function LevelIncomePage() {
             )}
 
             {/* No Parents Message */}
-            {levelData.eligibleParents && levelData.eligibleParents.length === 0 && (
+            {levelData && levelData.eligibleParents && levelData.eligibleParents.length === 0 && (
               <div className="bg-slate-800/50 rounded-xl p-12 border border-slate-700 text-center">
                 <p className="text-slate-400">No eligible parents found for this retopup user</p>
               </div>
@@ -224,14 +357,13 @@ export default function LevelIncomePage() {
           </div>
         )}
 
-        {/* No Results Message */}
-        {!loading && !levelData && userId && (
+        {/* No Selection Message */}
+        {!selectedUserId && !loadingPending && pendingRetopups.length > 0 && (
           <div className="bg-slate-800/50 rounded-xl p-12 border border-slate-700 text-center">
-            <p className="text-slate-400">No level income data found. Try searching for a different User ID.</p>
+            <p className="text-slate-400">Select a pending retopup above to view eligible parents and execute payments</p>
           </div>
         )}
       </div>
     </AdminLayout>
   )
 }
-

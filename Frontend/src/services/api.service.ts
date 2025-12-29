@@ -404,7 +404,7 @@ export const adminApi = {
   },
 
   /**
-   * Manual transfer level income
+   * Manual transfer level income (legacy - kept for backward compatibility)
    * POST /api/admin/level-income/manual-transfer
    */
   manualTransferLevelIncome: async (accessToken: string, userId: string, parentLevels?: number[]) => {
@@ -420,6 +420,75 @@ export const adminApi = {
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.error?.message || 'Failed to initiate manual transfer');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Get pending retopups
+   * GET /api/admin/retopups/pending
+   */
+  getPendingRetopups: async (accessToken: string) => {
+    const response = await fetch(`${API_BASE_URL}/admin/retopups/pending`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'Failed to fetch pending retopups');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Execute single payment for a specific parent at a specific level
+   * POST /api/admin/level-income/execute-single
+   */
+  executeSinglePayment: async (
+    accessToken: string,
+    userId: string,
+    parentUserId: string,
+    level: number
+  ) => {
+    const response = await fetch(`${API_BASE_URL}/admin/level-income/execute-single`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ userId, parentUserId, level })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'Failed to execute single payment');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Execute batch payment for all eligible parents
+   * POST /api/admin/level-income/execute-batch
+   */
+  executeBatchPayment: async (accessToken: string, userId: string) => {
+    const response = await fetch(`${API_BASE_URL}/admin/level-income/execute-batch`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ userId })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'Failed to execute batch payment');
     }
 
     return response.json();
