@@ -4,7 +4,7 @@ import { PaymentStatus } from '@prisma/client';
 import { Contract } from 'ethers';
 
 import { ethers } from 'ethers';
-import { getContract, getContractWithSigner, getTokenContract } from '../config/blockchain';
+import { getContract, getContractWithSigner, getTokenContract, getTokenContractWithSigner } from '../config/blockchain';
 import { generateTokens, getTokenExpiry, verifyToken } from '../services/auth.service';
 
 const RETOPUP_PRICE = process.env.RETOPUP_PRICE || '40';
@@ -405,41 +405,49 @@ export const retopupUser = async(req:Request,res:Response)=>{
         }
 
         const retopupPrice = await contract.retopupPrice();
-        const contractAddress = process.env.CONTRACT_ADDRESS;
+        const companyWallet = process.env.COMPANY_WALLET_ADDRESS;
         const tokenAddress = process.env.TOKEN_ADDRESS;
-        if (!contractAddress) {
-            throw new Error('CONTRACT_ADDRESS not set in environment');
+        
+        if (!companyWallet) {
+            throw new Error('COMPANY_WALLET_ADDRESS not set in environment');
         }
         if (!tokenAddress) {
             throw new Error('TOKEN_ADDRESS not set in environment');
         }
 
+        // Check token allowance from user to company wallet (not contract)
         const tokenContract = getTokenContract();
-        const allowance = await tokenContract.allowance(walletAddress, contractAddress);
+        const allowance = await tokenContract.allowance(walletAddress, companyWallet);
         if (allowance < retopupPrice) {
             console.log(`❌ Insufficient token allowance for ${walletAddress}`);
             console.log(`   Required: ${ethers.formatEther(retopupPrice)} tokens`);
             console.log(`   Current allowance: ${ethers.formatEther(allowance)} tokens`);
+            console.log(`   Company wallet: ${companyWallet}`);
             
             return res.status(400).json({ 
                 error: 'Insufficient token allowance',
                 canRetopup: false,
-                reason: 'Token approval required',
+                reason: 'Token approval required for company wallet',
                 required: ethers.formatEther(retopupPrice),
                 current: ethers.formatEther(allowance),
-                contractAddress: contractAddress,
+                companyWallet: companyWallet,
                 tokenAddress: tokenAddress
             });
         }
 
         console.log(`✅ Token allowance verified: ${ethers.formatEther(allowance)} tokens`);
+        console.log(`📤 Transferring retopup amount from user to company wallet...`);
+
+        // Transfer tokens from user to company wallet
+        const tokenContractWithSigner = getTokenContractWithSigner();
+        const transferTx = await tokenContractWithSigner.transferFrom(walletAddress, companyWallet, retopupPrice);
+        console.log(`⏳ Waiting for transfer confirmation: ${transferTx.hash}`);
         
-        // Commented out contract call for manual processing
-        // const contractWithSigner = getContractWithSigner();
-        // const tx = await contractWithSigner.retopup(walletAddress, retopupPrice);
-        // console.log(`⏳ Waiting for transaction confirmation: ${tx.hash}`);
-        // const receipt = await tx.wait();
-        // console.log(`✅ Retopup transaction confirmed in block ${receipt.blockNumber}`);
+        const transferReceipt = await transferTx.wait();
+        console.log(`✅ Retopup transfer confirmed in block ${transferReceipt.blockNumber}`);
+        console.log(`   From: ${walletAddress}`);
+        console.log(`   To: ${companyWallet}`);
+        console.log(`   Amount: ${ethers.formatEther(retopupPrice)} tokens`);
 
         // Create pending retopup record with manualShareTransfer = false
         const retopupAmount = parseFloat(ethers.formatEther(retopupPrice));
@@ -463,7 +471,8 @@ export const retopupUser = async(req:Request,res:Response)=>{
                 userId: dbUser.id,
                 walletAddress: dbUser.walletAddress,
                 retopupAmount: retopupAmount,
-                manualShareTransfer: false
+                manualShareTransfer: false,
+                txHash: transferReceipt.hash
             }
         });
 
@@ -477,8 +486,11 @@ export const retopupUser = async(req:Request,res:Response)=>{
 
         return res.status(200).json({ 
             success: true,
-            message: 'Retopup request created successfully. Awaiting admin approval.',
+            message: 'Retopup payment transferred to company wallet. Awaiting admin approval for distribution.',
             amount: ethers.formatEther(retopupPrice),
+            txHash: transferReceipt.hash,
+            blockNumber: transferReceipt.blockNumber.toString(),
+            companyWallet: companyWallet,
             manualShareTransfer: false
         });
 

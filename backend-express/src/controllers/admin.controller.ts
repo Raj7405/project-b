@@ -710,15 +710,47 @@ export const executeSinglePayment = async (req: AdminRequest, res: Response): Pr
       return;
     }
 
-    // Execute blockchain payment
-    const { getContractWithSigner } = await import('../config/blockchain');
+    // Execute payment from company wallet to parent
+    const { getTokenContractWithSigner } = await import('../config/blockchain');
     const { ethers } = await import('ethers');
     
-    const contract = getContractWithSigner();
+    const companyWallet = process.env.COMPANY_WALLET_ADDRESS;
+    if (!companyWallet) {
+      res.status(500).json({
+        error: {
+          code: 'CONFIGURATION_ERROR',
+          message: 'COMPANY_WALLET_ADDRESS not set in environment',
+          traceId: req.headers['x-request-id'] as string || 'unknown',
+          timestamp: new Date().toISOString()
+        }
+      });
+      return;
+    }
+
+    // Check company wallet balance
+    const tokenContract = await import('../config/blockchain').then(m => m.getTokenContract());
+    const companyBalance = await tokenContract.balanceOf(companyWallet);
     const shareAmountWei = ethers.parseUnits(shareAmount.toFixed(18), 18);
 
-    const tx = await contract.payout(parentUser.walletAddress, shareAmountWei, `LEVEL_INCOME_${levelNum}`);
+    if (companyBalance < shareAmountWei) {
+      res.status(400).json({
+        error: {
+          code: 'INSUFFICIENT_BALANCE',
+          message: `Insufficient company wallet balance. Required: ${ethers.formatEther(shareAmountWei)} tokens, Available: ${ethers.formatEther(companyBalance)} tokens`,
+          traceId: req.headers['x-request-id'] as string || 'unknown',
+          timestamp: new Date().toISOString()
+        }
+      });
+      return;
+    }
+
+    // Transfer from company wallet to parent
+    const tokenContractWithSigner = getTokenContractWithSigner();
+    const tx = await tokenContractWithSigner.transfer(parentUser.walletAddress, shareAmountWei);
     console.log(`📤 Single payment transaction sent: ${tx.hash}`);
+    console.log(`   From: ${companyWallet}`);
+    console.log(`   To: ${parentUser.walletAddress}`);
+    console.log(`   Amount: ${ethers.formatEther(shareAmountWei)} tokens`);
     
     const receipt = await tx.wait();
     console.log(`✅ Single payment confirmed in block ${receipt.blockNumber}`);
@@ -878,32 +910,16 @@ export const executeBatchPayment = async (req: AdminRequest, res: Response): Pro
       return;
     }
 
-    // Execute batch payment
-    const { getContractWithSigner } = await import('../config/blockchain');
+    // Execute batch payment from company wallet
+    const { getTokenContractWithSigner, getTokenContract } = await import('../config/blockchain');
     const { ethers } = await import('ethers');
-    const { getContract } = await import('../config/blockchain');
     
-    const contract = getContractWithSigner();
-    const users: string[] = [];
-    const amounts: bigint[] = [];
-    const rewardTypes: string[] = [];
-
-    for (const parent of eligibleForPayment) {
-      users.push(parent.walletAddress);
-      amounts.push(ethers.parseUnits(parent.shareAmount.toFixed(18), 18));
-      rewardTypes.push(`LEVEL_INCOME_${parent.level}`);
-    }
-
-    // Check contract balance
-    const readContract = getContract();
-    const contractBalance = await readContract.getContractBalance();
-    const totalPayout = amounts.reduce((sum, amt) => sum + amt, BigInt(0));
-    
-    if (contractBalance < totalPayout) {
-      res.status(400).json({
+    const companyWallet = process.env.COMPANY_WALLET_ADDRESS;
+    if (!companyWallet) {
+      res.status(500).json({
         error: {
-          code: 'INSUFFICIENT_BALANCE',
-          message: `Insufficient contract balance. Required: ${ethers.formatEther(totalPayout)} BNB, Available: ${ethers.formatEther(contractBalance)} BNB`,
+          code: 'CONFIGURATION_ERROR',
+          message: 'COMPANY_WALLET_ADDRESS not set in environment',
           traceId: req.headers['x-request-id'] as string || 'unknown',
           timestamp: new Date().toISOString()
         }
@@ -911,14 +927,53 @@ export const executeBatchPayment = async (req: AdminRequest, res: Response): Pro
       return;
     }
 
-    const tx = await contract.executeBatchPayouts(users, amounts, rewardTypes);
-    console.log(`📤 Batch payment transaction sent: ${tx.hash}`);
+    const amounts: bigint[] = [];
+    for (const parent of eligibleForPayment) {
+      amounts.push(ethers.parseUnits(parent.shareAmount.toFixed(18), 18));
+    }
+
+    // Check company wallet balance
+    const tokenContract = getTokenContract();
+    const companyBalance = await tokenContract.balanceOf(companyWallet);
+    const totalPayout = amounts.reduce((sum, amt) => sum + amt, BigInt(0));
     
-    const receipt = await tx.wait();
-    console.log(`✅ Batch payment confirmed in block ${receipt.blockNumber}`);
+    if (companyBalance < totalPayout) {
+      res.status(400).json({
+        error: {
+          code: 'INSUFFICIENT_BALANCE',
+          message: `Insufficient company wallet balance. Required: ${ethers.formatEther(totalPayout)} tokens, Available: ${ethers.formatEther(companyBalance)} tokens`,
+          traceId: req.headers['x-request-id'] as string || 'unknown',
+          timestamp: new Date().toISOString()
+        }
+      });
+      return;
+    }
+
+    // Execute individual transfers (token contracts don't have batch transfer)
+    // We'll do them sequentially or in parallel
+    const tokenContractWithSigner = getTokenContractWithSigner();
+    const transferPromises = eligibleForPayment.map(parent => {
+      const amountWei = ethers.parseUnits(parent.shareAmount.toFixed(18), 18);
+      return tokenContractWithSigner.transfer(parent.walletAddress, amountWei);
+    });
+
+    console.log(`📤 Executing ${transferPromises.length} batch payment transactions...`);
+    const txs = await Promise.all(transferPromises);
+    console.log(`⏳ Waiting for all transactions to confirm...`);
+    
+    // Wait for all transactions
+    const receipts = await Promise.all(txs.map(tx => tx.wait()));
+    const firstReceipt = receipts[0];
+    const txHashes = receipts.map(r => r.hash);
+    
+    console.log(`✅ All ${receipts.length} batch payments confirmed`);
+    console.log(`   Transaction hashes: ${txHashes.join(', ')}`);
 
     // Update user incomes and create transaction records
-    for (const parent of eligibleForPayment) {
+    for (let i = 0; i < eligibleForPayment.length; i++) {
+      const parent = eligibleForPayment[i];
+      const receipt = receipts[i];
+      
       await prisma.user.update({
         where: { id: parent.userId },
         data: {
@@ -939,27 +994,28 @@ export const executeBatchPayment = async (req: AdminRequest, res: Response): Pro
       });
     }
 
-    // Mark manualShareTransfer as true
+    // Mark manualShareTransfer as true (use first transaction hash as reference)
     await prisma.retopupPending.update({
       where: { userId },
       data: {
         manualShareTransfer: true,
-        txHash: receipt.hash
+        txHash: firstReceipt.hash // Store first transaction hash as reference
       }
     });
 
     res.status(200).json({
       success: true,
       message: 'Batch payment executed successfully',
-      txHash: receipt.hash,
-      blockNumber: receipt.blockNumber.toString(),
+      txHashes: txHashes,
+      blockNumber: firstReceipt.blockNumber.toString(),
       paymentsCount: eligibleForPayment.length,
       totalAmount: eligibleForPayment.reduce((sum, p) => sum + p.shareAmount, 0).toString(),
-      payments: eligibleForPayment.map(p => ({
+      payments: eligibleForPayment.map((p, i) => ({
         level: p.level,
         userId: p.userId,
         walletAddress: p.walletAddress,
-        amount: p.shareAmount.toString()
+        amount: p.shareAmount.toString(),
+        txHash: receipts[i].hash
       }))
     });
   } catch (error: any) {
