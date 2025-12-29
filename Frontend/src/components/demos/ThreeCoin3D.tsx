@@ -1,106 +1,261 @@
 'use client'
 
-import { useRef, Suspense, useEffect, useState } from 'react'
+import { useRef, Suspense, useEffect, useMemo } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { PerspectiveCamera, Environment } from '@react-three/drei'
+import { PerspectiveCamera, Environment, useGLTF, useTexture } from '@react-three/drei'
 import * as THREE from 'three'
 
+// Preload the model for better performance
+// useGLTF.preload('/model/Coin_FBX.glb')
+useGLTF.preload('/model/Coin.glb')
 
-function BNBLogo({ position, rotation, scale = 1 }: { position: [number, number, number], rotation?: [number, number, number], scale?: number }) {
-    return (
-      <group position={position} rotation={rotation || [0, 0, 0]} scale={scale}>
-        {/* BNB Logo - Authentic Diamond Pattern (rotated 45°) */}
-        
-        {/* Center diamond (rotated square) */}
-        <mesh position={[0, 0, 0]} rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.3, 0.3, 0.08]} />
-          <meshStandardMaterial color="#f3ba2f" metalness={0.3} roughness={0.4} />
-        </mesh>
-        
-        {/* Top diamond */}
-        <mesh position={[0, 0.55, 0]} rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.28, 0.28, 0.08]} />
-          <meshStandardMaterial color="#f3ba2f" metalness={0.3} roughness={0.4} />
-        </mesh>
-        
-        {/* Bottom diamond */}
-        <mesh position={[0, -0.55, 0]} rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.28, 0.28, 0.08]} />
-          <meshStandardMaterial color="#f3ba2f" metalness={0.3} roughness={0.4} />
-        </mesh>
-        
-        {/* Left diamond */}
-        <mesh position={[-0.55, 0, 0]} rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.22, 0.22, 0.08]} />
-          <meshStandardMaterial color="#f3ba2f" metalness={0.3} roughness={0.4} />
-        </mesh>
-        
-        {/* Right diamond */}
-        <mesh position={[0.55, 0, 0]} rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.22, 0.22, 0.08]} />
-          <meshStandardMaterial color="#f3ba2f" metalness={0.3} roughness={0.4} />
-        </mesh>
-        
-        {/* Top-left small diamond */}
-        <mesh position={[-0.28, 0.28, 0]} rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.38, 0.28, 0.08]} />
-          <meshStandardMaterial color="#f3ba2f" metalness={0.3} roughness={0.4} />
-        </mesh>
-        
-        {/* Top-right small diamond */}
-        <mesh position={[0.28, 0.28, 0]} rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.28, 0.38, 0.08]} />
-          <meshStandardMaterial color="#f3ba2f" metalness={0.3} roughness={0.4} />
-        </mesh>
-        
-        {/* Bottom-left small diamond */}
-        <mesh position={[-0.28, -0.28, 0]} rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.28, 0.38, 0.08]} />
-          <meshStandardMaterial color="#f3ba2f" metalness={0.3} roughness={0.4} />
-        </mesh>
-        
-        {/* Bottom-right small diamond */}
-        <mesh position={[0.28, -0.28, 0]} rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.42, 0.28, 0.08]} />
-          <meshStandardMaterial color="#f3ba2f" metalness={0.3} roughness={0.4} />
-        </mesh>
+// Electron particle with trail effect
+function ElectronOrbit({ 
+  orbitRadiusX, 
+  orbitRadiusY, 
+  speed, 
+  tiltX, 
+  tiltY, 
+  tiltZ, 
+  phase,
+  timeRef 
+}: { 
+  orbitRadiusX: number
+  orbitRadiusY: number
+  speed: number
+  tiltX: number
+  tiltY: number
+  tiltZ: number
+  phase: number
+  timeRef: React.MutableRefObject<number>
+}) {
+  const electronRef = useRef<THREE.Mesh>(null)
+  const trailRefs = useRef<(THREE.Mesh | null)[]>([])
+  const trailPositions = useRef<THREE.Vector3[]>([])
+  const trailLineRef = useRef<THREE.Line<THREE.BufferGeometry>>(null)
   
-        {/* Connecting bars */}
-        {/* Connect Top diamond to Top-left diamond */}
-        <mesh position={[-0.14, 0.415, 0]} rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.15, 0.28, 0.08]} />
-          <meshStandardMaterial color="#f3ba2f" metalness={0.3} roughness={0.4} />
-        </mesh>
+  // Initialize trail positions array - more particles for smoother trail
+  const trailLength = 40
+  
+  useFrame((state, delta) => {
+    if (electronRef.current) {
+      // Calculate elliptical orbit position
+      const angle = timeRef.current * speed + phase
+      const x = Math.cos(angle) * orbitRadiusX
+      const y = Math.sin(angle) * orbitRadiusY
+      
+      // Update electron position
+      electronRef.current.position.set(x, y, 0)
+      
+      // Update trail positions (store last N positions)
+      trailPositions.current.unshift(new THREE.Vector3(x, y, 0))
+      if (trailPositions.current.length > trailLength) {
+        trailPositions.current.pop()
+      }
+      
+      // Update trail line geometry
+      if (trailLineRef.current && trailPositions.current.length > 1) {
+        const positions = trailPositions.current.map(pos => [pos.x, pos.y, pos.z]).flat()
+        const geometry = trailLineRef.current.geometry
         
-        {/* Connect Top diamond to Top-right diamond */}
-        <mesh position={[0.14, 0.415, 0]} rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.28, 0.15, 0.08]} />
-          <meshStandardMaterial color="#f3ba2f" metalness={0.3} roughness={0.4} />
-        </mesh>
+        // Update or create position attribute
+        const positionAttribute = geometry.attributes.position as THREE.BufferAttribute
+        if (positionAttribute && positionAttribute.array.length >= positions.length) {
+          const array = positionAttribute.array as Float32Array
+          for (let i = 0; i < positions.length; i++) {
+            array[i] = positions[i]
+          }
+          positionAttribute.needsUpdate = true
+        } else {
+          geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+        }
         
-        {/* Connect Bottom diamond to Bottom-left diamond */}
-        <mesh position={[-0.14, -0.415, 0]} rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.28, 0.15, 0.08]} />
-          <meshStandardMaterial color="#f3ba2f" metalness={0.3} roughness={0.4} />
-        </mesh>
+        // Update line colors for fading effect
+        const colors: number[] = []
+        trailPositions.current.forEach((_, index) => {
+          const opacity = Math.pow(1 - index / trailLength, 1.2) * 0.5
+          const color = new THREE.Color('#f3ba2f')
+          color.multiplyScalar(opacity)
+          colors.push(color.r, color.g, color.b)
+        })
         
-        {/* Connect Bottom diamond to Bottom-right diamond */}
-        <mesh position={[0.14, -0.415, 0]} rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.15, 0.28, 0.08]} />
-          <meshStandardMaterial color="#f3ba2f" metalness={0.3} roughness={0.4} />
+        const colorAttribute = geometry.attributes.color as THREE.BufferAttribute
+        if (colorAttribute && colorAttribute.array.length >= colors.length) {
+          const array = colorAttribute.array as Float32Array
+          for (let i = 0; i < colors.length; i++) {
+            array[i] = colors[i]
+          }
+          colorAttribute.needsUpdate = true
+        } else {
+          geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+        }
+        
+        geometry.setDrawRange(0, trailPositions.current.length)
+      }
+      
+      // Update trail particles
+      trailRefs.current.forEach((trail, index) => {
+        if (trail && trailPositions.current[index]) {
+          trail.position.copy(trailPositions.current[index])
+          // Fade trail based on distance from electron with smoother gradient
+          const fadeProgress = index / trailLength
+          const opacity = Math.pow(1 - fadeProgress, 1.5) * 0.8 // Smoother fade curve
+          const size = 0.02 + (1 - fadeProgress) * 0.04 // Particles get smaller as they fade
+          
+          const material = trail.material as THREE.MeshBasicMaterial
+          if (material) {
+            material.opacity = opacity
+          }
+          // Update particle size
+          if (trail.geometry instanceof THREE.SphereGeometry) {
+            trail.scale.set(size / 0.03, size / 0.03, size / 0.03)
+          }
+        }
+      })
+    }
+  })
+  
+  return (
+    <group rotation={[tiltX, tiltY, tiltZ]}>
+      {/* Electron particle */}
+      <mesh ref={electronRef}>
+        <sphereGeometry args={[0.08, 16, 16]} />
+        <meshStandardMaterial
+          color="#f3ba2f"
+          emissive="#f3ba2f"
+          emissiveIntensity={2}
+        />
+      </mesh>
+      
+      {/* Trail line - glowing path */}
+      <line ref={trailLineRef as any}>
+        <bufferGeometry />
+        <lineBasicMaterial
+          vertexColors
+          transparent
+          opacity={0.4}
+        />
+      </line>
+      
+      {/* Trail particles - more particles for smoother trail */}
+      {[...Array(trailLength)].map((_, i) => (
+        <mesh
+          key={i}
+          ref={(el) => {
+            trailRefs.current[i] = el
+          }}
+        >
+          <sphereGeometry args={[0.03, 8, 8]} />
+          <meshStandardMaterial
+            color="#f3ba2f"
+            transparent
+            opacity={0}
+            emissive="#f3ba2f"
+            emissiveIntensity={0.5}
+          />
         </mesh>
-      </group>
-    )
-  }
+      ))}
+    </group>
+  )
+}
 
-function BNBCoin() {
+// Load the GLB model
+function CoinModel() {
+  const { scene } = useGLTF('/model/Coin.glb')
   const coinRef = useRef<THREE.Group | null>(null)
   const time = useRef(0)
   const { viewport } = useThree()
   
+  // Load only the BaseColor texture for the logo
+  const logoBaseColorTexture = useTexture('/textures/lx/Coin_FBX_LX_BaseColor.1001.png')
+  logoBaseColorTexture.flipY = false // GLB textures are typically not flipped
+  
   // Calculate scale based on viewport width
-  // Mobile: scale down to 0.5-0.6, Desktop: normal size (1)
-  const scale = viewport.width < 6 ? 0.5 : viewport.width < 8 ? 0.7 : 1
+  // Mobile: scale down more aggressively to prevent overflow
+  const viewportScale = viewport.width < 6 ? 0.3 : viewport.width < 8 ? 0.5 : 1
+  // Base model scale to make it bigger (adjust this value to match old size)
+  // Increased for Coin.glb which appears to be exported at a smaller scale
+  // Try values like 200, 500, or even 1000 if the model is extremely small
+  const modelScale = 250
+
+  // Clone the scene and apply golden materials
+  const clonedScene = useMemo(() => {
+    const cloned = scene.clone()
+    
+    // Scale the entire scene directly (more effective than group scaling)
+    cloned.scale.set(modelScale, modelScale, modelScale)
+    
+    // Traverse the cloned scene and apply golden materials to all meshes
+    let meshCount = 0
+    cloned.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        meshCount++
+        
+        // Check material name/texture slot (Blender uses material names for texture slots)
+        const material = child.material
+        let materialName = ''
+        let isLogo = false
+        
+        // Handle both single material and material arrays
+        if (Array.isArray(material)) {
+          // If mesh has multiple materials, check the first one
+          materialName = material[0]?.name?.toLowerCase() || ''
+        } else if (material) {
+          materialName = material.name?.toLowerCase() || ''
+        }
+        
+        // Debug: Log material names to console (remove after identifying logo)
+        if (meshCount <= 15) {
+          console.log(`Mesh ${meshCount}: "${child.name}" | Material: "${materialName || 'unnamed'}"`)
+        }
+        
+        // Check if material name contains logo-related keywords
+        // Common Blender material names for logo texture slots
+        isLogo = materialName.includes('lx') || 
+                 materialName.includes('logo') || 
+                 materialName.includes('text') || 
+                 materialName.includes('letter') ||
+                 materialName.includes('mark') ||
+                 materialName.includes('symbol') ||
+                 materialName.includes('emblem') ||
+                 materialName === 'l' ||
+                 materialName === 'x' ||
+                 materialName === 'lx'
+        
+        if (isLogo) {
+          // Apply BaseColor texture to logo while keeping surface shine properties
+          child.material = new THREE.MeshPhysicalMaterial({
+            map: logoBaseColorTexture, // BaseColor texture from Blender
+            metalness: 0.95,
+            roughness: 0.05,
+            // Iridescence creates gradient color-shifting effect
+            iridescence: 1.0, // Maximum iridescence for gradient effect
+            iridescenceIOR: 1.3,
+            iridescenceThicknessRange: [100, 400], // Creates cyan to purple transition
+            emissive: '#9d4edd', // Purple emissive glow
+            emissiveIntensity: 0.6,
+            envMapIntensity: 1.5,
+            clearcoat: 1.0,
+            clearcoatRoughness: 0.1,
+          })
+          console.log(`Applied BaseColor texture to logo: "${child.name}" with material "${materialName}"`)
+        } else {
+          // Apply golden material with metallic properties to coin body (default)
+          child.material = new THREE.MeshStandardMaterial({
+            color: '#f3ba2f', // Golden yellow
+            metalness: 0.9,
+            roughness: 0.15,
+            emissive: '#d4a11d',
+            emissiveIntensity: 0.2,
+          })
+        }
+        child.castShadow = true
+        child.receiveShadow = true
+      }
+    })
+    
+    return cloned
+  }, [scene, modelScale])
 
   useFrame((state, delta) => {
     if (coinRef.current) {
@@ -114,138 +269,87 @@ function BNBCoin() {
     }
   })
 
+  // Electron orbit configurations - different speeds, tilts, and elliptical paths
+  // First three orbits (front set)
+  const electronOrbits = [
+    {
+      orbitRadiusX: 3.5,
+      orbitRadiusY: 2.8,
+      speed: 0.8,
+      tiltX: 0,
+      tiltY: 0,
+      tiltZ: 0,
+      phase: 0,
+    },
+    {
+      orbitRadiusX: 4.2,
+      orbitRadiusY: 3.0,
+      speed: -0.6,
+      tiltX: Math.PI / 6,
+      tiltY: Math.PI / 4,
+      tiltZ: 0,
+      phase: Math.PI / 2,
+    },
+    {
+      orbitRadiusX: 3.8,
+      orbitRadiusY: 3.5,
+      speed: 1.0,
+      tiltX: -Math.PI / 8,
+      tiltY: -Math.PI / 6,
+      tiltZ: Math.PI / 3,
+      phase: Math.PI,
+    },
+    // Second three orbits (back set) - phases offset by π (180°) to be opposite
+    {
+      orbitRadiusX: 3.5,
+      orbitRadiusY: 2.8,
+      speed: 0.8,
+      tiltX: 0,
+      tiltY: 0,
+      tiltZ: 0,
+      phase: Math.PI, // Offset by π from first orbit
+    },
+    {
+      orbitRadiusX: 4.2,
+      orbitRadiusY: 3.0,
+      speed: -0.6,
+      tiltX: Math.PI / 6,
+      tiltY: Math.PI / 4,
+      tiltZ: 0,
+      phase: -Math.PI / 2, // Offset by π from second orbit (3π/2 or -π/2)
+    },
+    {
+      orbitRadiusX: 3.8,
+      orbitRadiusY: 3.5,
+      speed: 1.0,
+      tiltX: -Math.PI / 8,
+      tiltY: -Math.PI / 6,
+      tiltZ: Math.PI / 3,
+      phase: 0, // Offset by π from third orbit (2π or 0)
+    },
+  ]
+
   return (
-    <group ref={coinRef} scale={scale}>
-      {/* Main coin body - ROTATED TO STAND UPRIGHT */}
-      <mesh castShadow receiveShadow rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[2.5, 2.5, 0.25, 80]} />
-        <meshStandardMaterial
-          color="#c9a846"
-          metalness={0.9}
-          roughness={0.15}
-        />
-      </mesh>
-
-      {/* Front face */}
-      <mesh position={[0, 0, 0.13]} castShadow>
-        <circleGeometry args={[2.45, 64]} />
-        <meshStandardMaterial
-          color="#f3ba2f"
-          metalness={0.85}
-          roughness={0.1}
-        />
-      </mesh>
-
-      {/* Back face */}
-      <mesh position={[0, 0, -0.13]} rotation={[0, Math.PI, 0]} castShadow>
-        <circleGeometry args={[2.45, 64]} />
-        <meshStandardMaterial
-          color="#f3ba2f"
-          metalness={0.85}
-          roughness={0.1}
-        />
-      </mesh>
-
-      {/* Ridged edge ring - ROTATED */}
-      <mesh rotation={[Math.PI, 0, 0]}>
-        <torusGeometry args={[2.5, 0.125, 16, 80]} />
-        <meshStandardMaterial
-          color="#b8941f"
-          metalness={1}
-          roughness={0.3}
-        />
-      </mesh>
-
-      {/* Inner decorative ring on front */}
-      <mesh position={[0, 0, 0.14]} rotation={[0, 0, 0]}>
-        <torusGeometry args={[2.1, 0.04, 16, 64]} />
-        <meshStandardMaterial
-          color="#d4a11d"
-          metalness={0.9}
-          roughness={0.2}
-        />
-      </mesh>
-
-      {/* Inner decorative ring on back */}
-      <mesh position={[0, 0, -0.14]} rotation={[0, 0, 0]}>
-        <torusGeometry args={[2.1, 0.04, 16, 64]} />
-        <meshStandardMaterial
-          color="#d4a11d"
-          metalness={0.9}
-          roughness={0.2}
-        />
-      </mesh>
-
-      {/* BNB Logo on front */}
-      <BNBLogo position={[0, 0, 0.16]} scale={1.2} />
+    <group ref={coinRef} scale={viewportScale}>
+      {/* Coin model - already scaled in clonedScene */}
+      <primitive object={clonedScene} castShadow receiveShadow />
       
-      {/* BNB Logo on back */}
-      <BNBLogo position={[0, 0, -0.16]} rotation={[0, Math.PI, 0]} scale={1.2} />
-
-      {/* Orbiting particles - golden sparkles (fewer on mobile) */}
-      {[...Array(viewport.width < 6 ? 15 : 30)].map((_, i) => {
-        const totalParticles = viewport.width < 6 ? 15 : 30
-        const angle = (i / totalParticles) * Math.PI * 2
-        const radius = 3.5 + Math.sin(i * 0.5) * 0.4
-        const orbitSpeed = time.current * 0.6
-        const verticalOffset = Math.sin(time.current * 2 + i * 0.2) * 0.4
-        
-        return (
-          <mesh
-            key={i}
-            position={[
-              Math.cos(angle + orbitSpeed) * radius,
-              verticalOffset,
-              Math.sin(angle + orbitSpeed) * radius
-            ]}
-          >
-            <sphereGeometry args={[0.05, 16, 16]} />
-            <meshStandardMaterial
-              color="#f3ba2f"
-              emissive="#f3ba2f"
-              emissiveIntensity={1}
-            />
-          </mesh>
-        )
-      })}
-
-      {/* Outer edge ring - moved to coin border */}
-      <mesh rotation={[Math.PI, 0, 0]}>
-        <torusGeometry args={[2.5, 0.08, 16, 80]} />
-        <meshStandardMaterial
-          color="#d4a11d"
-          metalness={1}
-          roughness={0.1}
-        />
-      </mesh>
-      
-      {/* Glow ring effect - subtle outer glow */}
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[3.2, 0.02, 16, 100]} />
-        <meshBasicMaterial color="#f3ba2f" transparent opacity={0.4} />
-      </mesh>
-
-      {/* Additional sparkle particles closer to coin (fewer on mobile) */}
-      {[...Array(viewport.width < 6 ? 8 : 15)].map((_, i) => {
-        const totalInnerParticles = viewport.width < 6 ? 8 : 15
-        const angle = (i / totalInnerParticles) * Math.PI * 2
-        const radius = 2.8
-        const orbitSpeed = time.current * -0.4
-        
-        return (
-          <mesh
-            key={`inner-${i}`}
-            position={[
-              Math.cos(angle + orbitSpeed) * radius,
-              Math.sin(time.current * 3 + i) * 0.2,
-              Math.sin(angle + orbitSpeed) * radius
-            ]}
-          >
-            <sphereGeometry args={[0.04, 12, 12]} />
-            <meshBasicMaterial color="#ffd700" transparent opacity={0.8} />
-          </mesh>
-        )
-      })}
+      {/* Atomic orbital effect - electron orbits */}
+      <group>
+        {electronOrbits.map((orbit, index) => (
+          <ElectronOrbit
+            key={index}
+            orbitRadiusX={orbit.orbitRadiusX}
+            orbitRadiusY={orbit.orbitRadiusY}
+            speed={orbit.speed}
+            tiltX={orbit.tiltX}
+            tiltY={orbit.tiltY}
+            tiltZ={orbit.tiltZ}
+            phase={orbit.phase}
+            timeRef={time}
+          />
+        ))}
+      </group>
     </group>
   )
 }
@@ -256,11 +360,11 @@ function ResponsiveCamera() {
   useEffect(() => {
     // Adjust camera position based on viewport
     if (viewport.width < 6) {
-      // Mobile: zoom out more
-      camera.position.set(0, 0, 12)
+      // Mobile: zoom out more to prevent overflow
+      camera.position.set(0, 0, 15)
     } else if (viewport.width < 8) {
       // Tablet: zoom out slightly
-      camera.position.set(0, 0, 11)
+      camera.position.set(0, 0, 12)
     } else {
       // Desktop: normal view
       camera.position.set(0, 0, 10)
@@ -273,7 +377,7 @@ function ResponsiveCamera() {
 
 export default function ThreeCoin3D() {
   return (
-    <div className="w-full h-full">
+    <div className="w-full h-full overflow-hidden">
       <Canvas shadows>
         <PerspectiveCamera makeDefault position={[0, 0, 10]} />
         <ResponsiveCamera />
@@ -297,12 +401,8 @@ export default function ThreeCoin3D() {
         <pointLight position={[5, 0, -5]} intensity={0.6} color="#f3ba2f" />
         
         <Suspense fallback={null}>
-          <BNBCoin />
+          <CoinModel />
           <Environment preset="sunset" />
-          {/* <Environment files="https://rawcdn.githack.com/mrdoob/three.js/master/examples/textures/equirectangular/venice_sunset_1k.hdr" /> */}
-
-          
-          
         </Suspense>
       </Canvas>
     </div>

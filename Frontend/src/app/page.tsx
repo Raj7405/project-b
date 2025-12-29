@@ -31,8 +31,8 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen">
-      <section className="w-full h-auto">
+    <div className="min-h-screen overflow-x-hidden">
+      <section className="w-full h-auto overflow-x-hidden">
         <div className='font-bold text-white mb-6 leading-tight text-center p-4 bg-blue-gradient-primary sticky top-0 z-1000 opacity-80'>
           MLM platform
         </div>
@@ -153,7 +153,7 @@ export default function Home() {
                   </div>
 
                   {/* Right Side - 3D BNB Coin (appears first on mobile) */}
-                  <div className="relative h-[400px] sm:h-[500px] lg:h-[600px] flex items-center justify-center">
+                  <div className="relative h-[400px] sm:h-[500px] lg:h-[600px] flex items-center justify-center overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-radial from-yellow-500/10 via-transparent to-transparent blur-3xl"></div>
                     <ThreeCoin3D />
                   </div>
