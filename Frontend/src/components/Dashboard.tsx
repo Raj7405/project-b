@@ -10,6 +10,7 @@ import BinaryTree from './BinaryTree'
 import BinaryTreeLive from './BinaryTreeLive'
 import { authApi, transactionApi } from '@/services/api.service'
 import { useAuth } from '@/contexts/AuthContext'
+import { REGISTRATION_PATH } from '@/utils/path'
 
 export default function Dashboard() {
   const { account, tokenContract } = useWeb3()
@@ -155,7 +156,14 @@ export default function Dashboard() {
           </div>
           <h2 className="text-3xl font-bold text-white mb-4">Not Registered</h2>
           <p className="text-gray-300 mb-6 text-lg">
-            You haven't registered yet. Go to the Register tab to join the platform.
+            You haven't registered yet. Go to the {" "}
+            <Link href={REGISTRATION_PATH} className="text-blue-500 hover:text-blue-600">
+              <span className="text-blue-500 hover:text-blue-600 underline underline-offset-3" >
+                Register tab
+              </span>
+            </Link> 
+            {" "}
+            to join the platform.
           </p>
           <div className="h-1 w-32 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full mx-auto"></div>
         </div>

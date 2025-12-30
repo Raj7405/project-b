@@ -7,6 +7,8 @@ import { ethers } from 'ethers'
 import toast from 'react-hot-toast'
 import { FaArrowUp, FaSpinner, FaCheckCircle, FaInfoCircle, FaExclamationTriangle } from 'react-icons/fa'
 import { authApi } from '@/services/api.service'
+import Link from 'next/link'
+import { REGISTRATION_PATH } from '@/utils/path'
 
 export default function ReTopup() {
   const { account, contract, tokenContract } = useWeb3()
@@ -226,7 +228,14 @@ export default function ReTopup() {
             </div>
             <h2 className="text-3xl font-bold text-white mb-4">Registration Required</h2>
             <p className="text-gray-300 mb-6 text-lg">
-              You need to register and complete payment first before you can re-topup. Please go to the Register tab.
+              You need to register and complete payment first before you can re-topup. Please go to the {" "}
+              <Link href={REGISTRATION_PATH} className="text-blue-500 hover:text-blue-600">
+                <span className="text-blue-500 hover:text-blue-600 underline underline-offset-3" >
+                  Register tab
+                </span>
+              </Link> 
+              {" "}
+              to join the platform.
             </p>
             <div className="h-1 w-32 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-full mx-auto"></div>
           </div>
