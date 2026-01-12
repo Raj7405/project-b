@@ -13,6 +13,7 @@ import {
   FaChartLine,
   FaSignOutAlt
 } from 'react-icons/fa'
+import { PROJECT_NAME } from '@/utils/constants'
 
 interface AdminLayoutProps {
   children: React.ReactNode
@@ -56,7 +57,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         {/* Header */}
         <div className="p-6 border-b border-slate-800">
           <h1 className="text-xl font-bold text-white mb-1">Admin Panel</h1>
-          <p className="text-sm text-slate-400">Crypto MLM Platform</p>
+          <p className="text-sm text-slate-400">{PROJECT_NAME} Platform</p>
         </div>
 
         {/* Navigation */}

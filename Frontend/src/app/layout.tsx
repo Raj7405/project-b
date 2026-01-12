@@ -5,6 +5,7 @@ import { Web3Provider } from "@/contexts/Web3Context";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { Toaster } from "react-hot-toast";
 import dynamic from "next/dynamic"; 
+import { PROJECT_NAME } from "@/utils/constants";
 const NavigationProgressBar = dynamic(() => import("@/components/NavigationProgressBar"), { ssr: false });
 const ConditionalLayout = dynamic(() => import("@/components/ConditionalLayout"), { ssr: false });
 
@@ -12,10 +13,10 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: {
-    default: "Crypto MLM Platform - Decentralized Business Matrix on BSC",
-    template: "%s | Crypto MLM Platform"
+    default: `${PROJECT_NAME} Platform - Decentralized Business Matrix on BSC`,
+    template: `%s | ${PROJECT_NAME} Platform`
   },
-  description: "Join the future of multi-level marketing with our decentralized business matrix platform built on BEP-20 blockchain. Earn direct income, auto pool rewards, and level income through smart contracts.",
+  description: `Join the future of multi-level marketing with our decentralized business matrix platform built on BEP-20 blockchain. Earn direct income, auto pool rewards, and level income through smart contracts.`,
   keywords: [
     "crypto MLM",
     "blockchain MLM",
@@ -30,24 +31,24 @@ export const metadata: Metadata = {
     "DeFi",
     "business matrix"
   ],
-  authors: [{ name: "Crypto MLM Team" }],
-  creator: "Crypto MLM Platform",
-  publisher: "Crypto MLM Platform",
+  authors: [{ name: `${PROJECT_NAME} Team` }],
+  creator: `${PROJECT_NAME} Platform`,
+  publisher: `${PROJECT_NAME} Platform`,
   
   // Open Graph (Facebook, LinkedIn)
   openGraph: {
     type: "website",
     locale: "en_US",
     url: "https://yourwebsite.com", // Update with your actual domain
-    siteName: "Crypto MLM Platform",
-    title: "Crypto MLM Platform - Decentralized Business Matrix",
+    siteName: `${PROJECT_NAME} Platform`,
+    title: `${PROJECT_NAME} Platform - Decentralized Business Matrix`,
     description: "Decentralized multi-level marketing platform on BEP-20. Earn through direct income, auto pool, and 10-level income system.",
     images: [
       {
         url: "/images/og-image.png", // Create this image (1200x630px recommended)
         width: 1200,
         height: 630,
-        alt: "Crypto MLM Platform",
+        alt: `${PROJECT_NAME} Platform`,
       }
     ],
   },
@@ -57,8 +58,8 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     site: "@yourhandle", // Update with your Twitter handle
     creator: "@yourhandle",
-    title: "Crypto MLM Platform - Decentralized Business Matrix",
-    description: "Join the decentralized MLM revolution on BSC blockchain",
+    title: `${PROJECT_NAME} Platform - Decentralized Business Matrix`,
+    description: `Join the decentralized MLM revolution on BSC blockchain`,
     images: ["/images/twitter-card.png"], // Create this image (1200x600px)
   },
 
@@ -98,8 +99,8 @@ export default function RootLayout({
   const structuredData = {
     "@context": "https://schema.org",
     "@type": "WebApplication",
-    "name": "Crypto MLM Platform",
-    "description": "Decentralized multi-level marketing platform built on BEP-20 blockchain with smart contracts",
+    "name": `${PROJECT_NAME} Platform`,
+    "description": `Decentralized multi-level marketing platform built on BEP-20 blockchain with smart contracts`,
     "url": "https://yourwebsite.com", // Update with your actual domain
     "applicationCategory": "BusinessApplication",
     "operatingSystem": "Web Browser",

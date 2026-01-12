@@ -9,6 +9,7 @@ import AdminPanel from '@/components/AdminPanel'
 import { useWeb3 } from '@/contexts/Web3Context'
 import toast from 'react-hot-toast'
 import dynamic from 'next/dynamic'
+import { PROJECT_NAME } from '@/utils/constants'
 const ThreeCoin3D = dynamic(() => import('@/components/demos/ThreeCoin3D'), { ssr: false })
 
 export default function Home() {
@@ -123,7 +124,7 @@ export default function Home() {
                   <div className="space-y-8 text-center lg:text-left">
                     <div>
                       <h1 className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl gradient-color-1 font-bold text-white mb-6 leading-tight">
-                        Welcome to Crypto MLM Platform
+                        Welcome to {PROJECT_NAME} Platform
                       </h1>
                       <p className="text-xl sm:text-2xl lg:text-3xl text-gray-300 mb-4">
                         Connect your wallet to get started
@@ -167,7 +168,7 @@ export default function Home() {
                       International community
                     </h2>
                     <h3 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white mb-6">
-                      Global Decentralized Ecosystem
+                      100% Global Decentralized Ecosystem
                     </h3>
                     <p className="text-lg sm:text-xl text-gray-300 max-w-4xl mx-auto">
                       Decentralized networking platform based on smart contracts that connects people from all over the world and opens the limitless possibilities of the new economic financial system.
@@ -236,7 +237,7 @@ export default function Home() {
                             </svg>
                           </div>
                         </div>
-                        <h3 className="text-xl font-bold gradient-color-1 mb-3 text-center">Transparency and Anonymity</h3>
+                        <h3 className="text-xl font-bold gradient-color-1 mb-3 text-center">100% Transparency and Anonymity</h3>
                         <p className="text-gray-300 text-center">
                           The smart contract is public. Anyone can see the code and the entire transaction history. This guarantees the integrity of the system and real project statistics.
                         </p>
@@ -254,7 +255,7 @@ export default function Home() {
                             </svg>
                           </div>
                         </div>
-                        <h3 className="text-xl font-bold gradient-color-1 mb-3 text-center">Decentralization</h3>
+                        <h3 className="text-xl font-bold gradient-color-1 mb-3 text-center">100% Decentralization</h3>
                         <p className="text-gray-300 text-center">
                           There are no managers or administrators, there are only the creators who are equal participants in the project, like everyone else.
                         </p>
@@ -284,7 +285,7 @@ export default function Home() {
                 <div className="mb-20">
                   <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-12 text-center">
                     How Do I Start Earning With{' '}
-                    <span className="gradient-color-1">Crypto MLM Platform</span>
+                    <span className="gradient-color-1">{PROJECT_NAME} Platform</span>
                     <span className="block w-24 h-1 bg-blue-gradient-primary mx-auto mt-2"></span>
                   </h2>
 
@@ -301,7 +302,7 @@ export default function Home() {
                         </div>
                         <h3 className="text-2xl font-bold gradient-color-1 mb-4 text-center">Create Wallet</h3>
                         <p className="text-gray-300 text-center">
-                          Create a wallet Tronlink pro. Crypto MLM Platform works with Tronlink pro, Token pocket and Trust wallet.
+                          Create a wallet Tronlink pro. ${PROJECT_NAME} Platform works with Tronlink pro, Token pocket and Trust wallet.
                         </p>
                       </div>
                     </div>
@@ -335,7 +336,7 @@ export default function Home() {
                         </div>
                         <h3 className="text-2xl font-bold gradient-color-1 mb-4 text-center">Activate</h3>
                         <p className="text-gray-300 text-center">
-                          Activate levels in Crypto MLM Platform systems to increase your income.
+                          Activate levels in ${PROJECT_NAME} Platform systems to increase your income.
                         </p>
                       </div>
                     </div>
@@ -351,16 +352,16 @@ export default function Home() {
                   <div className="max-w-full mx-auto space-y-4">
                     {[
                       {
-                        question: "WHAT IS CRYPTO MLM PLATFORM?",
-                        answer: "Crypto MLM Platform is a decentralized networking platform based on smart contracts that connects people from all over the world. It operates on blockchain technology, ensuring transparency, security, and immutability of all transactions."
+                        question: `WHAT IS ${PROJECT_NAME} PLATFORM?`,
+                        answer: `${PROJECT_NAME} Platform is a decentralized networking platform based on smart contracts that connects people from all over the world. It operates on blockchain technology, ensuring transparency, security, and immutability of all transactions.`
                       },
                       {
                         question: "WHO MANAGES THE PLATFORM?",
                         answer: "The platform is fully decentralized and operates through smart contracts. There are no managers or administrators - only creators who are equal participants in the project, just like everyone else."
                       },
                       {
-                        question: "WHO CREATED CRYPTO MLM PLATFORM?",
-                        answer: "Crypto MLM Platform was created by developers who are themselves participants in the platform. They have no special privileges and operate under the same conditions as all other members."
+                        question: `WHO CREATED ${PROJECT_NAME} PLATFORM?`,
+                        answer: `${PROJECT_NAME} Platform was created by developers who are themselves participants in the platform. They have no special privileges and operate under the same conditions as all other members.`
                       },
                       {
                         question: "WHAT IS A SMART CONTRACT? WHAT ARE ITS ADVANTAGES?",
@@ -376,18 +377,18 @@ export default function Home() {
                       },
                       {
                         question: "WHICH WALLET SHOULD I USE?",
-                        answer: "Crypto MLM Platform works with Tronlink pro, Token pocket, and Trust wallet. You can use any of these wallets to interact with the platform."
+                        answer: `${PROJECT_NAME} Platform works with Tronlink pro, Token pocket, and Trust wallet. You can use any of these wallets to interact with the platform.`
                       },
                       {
-                        question: "WHERE CAN I GET MORE INFORMATION ABOUT CRYPTO MLM PLATFORM?",
+                        question: `WHERE CAN I GET MORE INFORMATION ABOUT ${PROJECT_NAME} PLATFORM?`,
                         answer: "You can find more information on the official website, community forums, and by examining the smart contract code which is publicly available on the blockchain."
                       },
                       {
-                        question: "HOW TO BUY / SELL TRON IF I HAVE NEVER DEALT WITH CRYPTOCURRENCY?",
+                        question: `HOW TO BUY / SELL TRON IF I HAVE NEVER DEALT WITH CRYPTOCURRENCY?`,
                         answer: "You can purchase TRON through cryptocurrency exchanges like Binance, Coinbase, or other exchanges. Create an account, complete verification, deposit funds, and then buy TRON. To sell, reverse the process."
                       },
                       {
-                        question: "HOW CAN I REGISTER ON THE CRYPTO MLM PLATFORM?",
+                        question: `HOW CAN I REGISTER ON THE ${PROJECT_NAME} PLATFORM?`,
                         answer: "Register by connecting your wallet to the platform. If someone invited you, use their referral link during registration. Make sure to verify that your upline (referrer) is correct before completing registration."
                       },
                       {
@@ -395,7 +396,7 @@ export default function Home() {
                         answer: "Yes, you can register without a partner link, but using a referral link helps establish your position in the network structure and may provide benefits for both you and your referrer."
                       },
                       {
-                        question: "WHAT WILL HAPPEN TO MY ACCOUNT IF I TAKE A BREAK FROM WORKING WITH THE CRYPTO MLM COMMUNITY?",
+                        question: `WHAT WILL HAPPEN TO MY ACCOUNT IF I TAKE A BREAK FROM WORKING WITH THE ${PROJECT_NAME} COMMUNITY?`,
                         answer: "Your account remains active on the blockchain. Since the platform is decentralized and operates through smart contracts, your account and data are permanently stored. You can return at any time and continue where you left off."
                       },
                       {

@@ -6,6 +6,7 @@ import { useWeb3 } from '@/contexts/Web3Context'
 import { useAuth } from '@/contexts/AuthContext'
 import toast from 'react-hot-toast'
 import { useRouter } from 'next/navigation'
+import { PROJECT_NAME } from '@/utils/constants'
 
 export default function Login() {
   const [userId, setUserId] = useState('')
@@ -330,7 +331,7 @@ export default function Login() {
               href="/registration"
               className="text-orange-400 hover:text-orange-300 text-xl font-semibold underline transition-colors"
             >
-              Registration in crypto_mlm
+              Registration in {PROJECT_NAME}
             </a>
           </div>
 
@@ -343,7 +344,7 @@ export default function Login() {
               rel="noopener noreferrer"
               className="text-blue-400 hover:text-blue-300 text-xl font-semibold underline transition-colors"
             >
-              @crypto-mlm
+              @lx-pro-bnb
             </a>
           </div>
         </div>

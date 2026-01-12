@@ -1,5 +1,6 @@
 'use client'
 
+import { PROJECT_NAME } from '@/utils/constants'
 import Link from 'next/link'
 
 export default function Footer() {
@@ -12,7 +13,7 @@ export default function Footer() {
           {/* About Section */}
           <div>
             <h3 className="text-xl font-bold text-white mb-4 gradient-color-1">
-              Crypto MLM Platform
+              {PROJECT_NAME}
             </h3>
             <p className="text-gray-400 text-sm leading-relaxed">
               Your decentralized business matrix platform built on BEP-20. 
@@ -102,7 +103,7 @@ export default function Footer() {
                 Twitter
               </a>
               <a 
-                href="mailto:support@cryptomlm.com" 
+                href="mailto:support@lx-pro-bnb.com" 
                 className="flex items-center text-gray-400 hover:text-white transition-colors text-sm"
               >
                 <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -128,7 +129,7 @@ export default function Footer() {
         <div className="border-t border-gray-800 pt-8 mt-8">
           <div className="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
             <div className="text-gray-400 text-sm">
-              © {currentYear} Crypto MLM Platform. All rights reserved.
+              © {currentYear} {PROJECT_NAME} Platform. All rights reserved.
             </div>
             <div className="flex space-x-6 text-sm">
               <Link href="/terms" className="text-gray-400 hover:text-white transition-colors">

@@ -205,7 +205,7 @@ export default function RegistrationPage() {
               rel="noopener noreferrer"
               className="text-blue-400 hover:text-blue-300 text-xl font-semibold underline transition-colors"
             >
-              @crypto-mlm
+              @lx-pro-bnb
             </a>
           </div>
         </div>

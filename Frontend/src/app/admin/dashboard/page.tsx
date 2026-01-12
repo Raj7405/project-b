@@ -2,6 +2,7 @@
 
 import AdminLayout from '@/components/admin/AdminLayout'
 import { useAdmin } from '@/contexts/AdminContext'
+import { PROJECT_NAME } from '@/utils/constants'
 import { FaUsers, FaDollarSign, FaSearch, FaClock, FaChartLine } from 'react-icons/fa'
 
 export default function AdminDashboardPage() {
@@ -13,7 +14,7 @@ export default function AdminDashboardPage() {
         {/* Welcome Header */}
         <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-6 text-white shadow-lg">
           <h1 className="text-3xl font-bold mb-2">Welcome back, {admin?.username}!</h1>
-          <p className="text-blue-100">Manage your Crypto MLM platform from here</p>
+          <p className="text-blue-100">Manage your {PROJECT_NAME} platform from here</p>
         </div>
 
         {/* Quick Stats */}
