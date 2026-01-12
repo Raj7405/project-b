@@ -34,7 +34,7 @@ export default function Home() {
     <div className="min-h-screen overflow-x-hidden">
       <section className="w-full h-auto overflow-x-hidden">
         <div className='font-bold text-white mb-6 leading-tight text-center p-4 bg-blue-gradient-primary sticky top-0 z-1000 opacity-80'>
-          MLM platform
+          {PROJECT_NAME} Platform
         </div>
         <div className="">
           {account ? (
